@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-data_dir="../data"
+data_dir="data"
 
 mkdir -p models
 

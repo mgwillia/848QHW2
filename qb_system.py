@@ -9,7 +9,7 @@ from models import AnswerExtractor, Retriever, ReRanker, WikiLookup
 
 class QuizBowlSystem:
 
-    def __init__(self, wiki_lookup_path: str = '../data/wiki_lookup.2018.json') -> None:
+    def __init__(self, wiki_lookup_path: str = 'data/wiki_lookup.2018.json') -> None:
         """Fill this method to create attributes, load saved models, etc
         Don't add any other arguments to this constructor. 
         If you really want to have arguments, they should have some default values set.
@@ -54,7 +54,7 @@ class QuizBowlSystem:
 
 if __name__ == "__main__":
     qa = QuizBowlSystem()
-    qanta_db = QantaDatabase('../data/small.guessdev.json')
+    qanta_db = QantaDatabase('data/small.guessdev.json')
     small_set_questions = qanta_db.all_questions[:10]
 
     for question in tqdm(small_set_questions):
