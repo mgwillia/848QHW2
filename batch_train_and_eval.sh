@@ -14,7 +14,7 @@
 module load cuda/11.0.3
 
 srun bash -c "hostname;"
-srun bash -c "tfidf_guesser.py \
+srun bash -c "python tfidf_guesser.py \
     --guesstrain data/qanta.train.2018.json \
     --guessdev data/qanta.dev.2018.json \
     --model_path models/tfidf.pickle;"
