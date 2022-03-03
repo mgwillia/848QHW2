@@ -19,5 +19,5 @@ srun bash -c "hostname;"
 #    --guessdev data/qanta.dev.2018.json \
 #    --model_path models/tfidf.pickle;"
 
-srun bash -c "python run_e2e_eval.py --mode eval;"
-srun bash -c "python run_e2e_eval.py --mode predict --eval-dataset data/qanta.hw2.test.json;"
+#srun bash -c "python run_e2e_eval.py --mode eval;"
+srun bash -c "python run_e2e_eval.py --mode predict --eval_dataset data/qanta.hw2.test.json;"
