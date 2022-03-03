@@ -14,10 +14,10 @@
 module load cuda/11.0.3
 
 srun bash -c "hostname;"
-srun bash -c "python tfidf_guesser.py \
-    --guesstrain data/qanta.train.2018.json \
-    --guessdev data/qanta.dev.2018.json \
-    --model_path models/tfidf.pickle;"
+#srun bash -c "python tfidf_guesser.py \
+#    --guesstrain data/qanta.train.2018.json \
+#    --guessdev data/qanta.dev.2018.json \
+#    --model_path models/tfidf.pickle;"
 
 srun bash -c "python run_e2e_eval.py --mode eval;"
 srun bash -c "python run_e2e_eval.py --mode predict --eval-dataset data/qanta.hw2.test.json;"
