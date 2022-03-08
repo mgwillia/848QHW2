@@ -1,18 +1,97 @@
-from typing import List, Union
+from typing import List, Union, Tuple
 from base_models import BaseGuesser, BaseReRanker, BaseRetriever, BaseAnswerExtractor
 from qbdata import WikiLookup
 
 import torch
+import torch.nn.functional as F
 from transformers import BertForSequenceClassification, pipeline
 from transformers import AutoTokenizer, AutoModelForQuestionAnswering, AutoModelForSequenceClassification
+from transformers import DPRQuestionEncoder, DPRQuestionEncoderTokenizer, DPRContextEncoder, DPRContextEncoderTokenizer
 
 # Change this based on the GPU you use on your machine
 device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
 
 
+class BiEncoderNllLoss(torch.nn.Module):
+
+    def __init__(self):
+        super(BiEncoderNllLoss, self).__init__()
+
+    def forward(
+        self,
+        q_vectors: torch.Tensor,
+        ctx_vectors: torch.Tensor,
+        positive_idx_per_question: list,
+    ) -> Tuple[torch.Tensor, int]:
+        """
+        Computes nll loss for the given lists of question and ctx vectors.
+        Note that although hard_negative_idx_per_question in not currently in use, one can use it for the
+        loss modifications. For example - weighted NLL with different factors for hard vs regular negatives.
+        :return: a tuple of loss value and amount of correct predictions per batch
+        """
+        b, n = q_vectors.shape
+        scores = torch.bmm(q_vectors.view(b, 1, n), ctx_vectors.view(b, n, 1)).squeeze()
+        print(scores.shape) # should be b, b
+        softmax_scores = F.log_softmax(scores, dim=1)
+
+        loss = F.nll_loss(
+            softmax_scores,
+            torch.tensor(positive_idx_per_question).to(softmax_scores.device),
+            reduction="mean",
+        )
+
+        _, max_idxs = torch.max(softmax_scores, 1)
+        correct_predictions_count = (max_idxs == torch.tensor(positive_idx_per_question).to(max_idxs.device)).sum()
+
+        return loss, correct_predictions_count
+
+
+def get_guesser_scheduler(optimizer, warmup_steps, total_training_steps, steps_shift=0, last_epoch=-1):
+
+    """Create a schedule with a learning rate that decreases linearly after
+    linearly increasing during a warmup period.
+    """
+
+    def lr_lambda(current_step):
+        current_step += steps_shift
+        if current_step < warmup_steps:
+            return float(current_step) / float(max(1, warmup_steps))
+        return max(
+            1e-7,
+            float(total_training_steps - current_step) / float(max(1, total_training_steps - warmup_steps)),
+        )
+
+    return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda, last_epoch)
+
+
 class Guesser(BaseGuesser):
     """You can implement your own Bert based Guesser here"""
-    pass
+    def __init__(self) -> None:
+        self.tokenizer = None
+        self.model = None
+
+    def load(self, model_identifier: str, max_model_length: int = 512):
+        self.question_tokenizer = DPRQuestionEncoderTokenizer.from_pretrained("facebook/dpr-question_encoder-single-nq-base")
+        self.question_model = DPRQuestionEncoder.from_pretrained("facebook/dpr-question_encoder-single-nq-base").to(device)
+
+        self.context_tokenizer = DPRContextEncoderTokenizer.from_pretrained("facebook/dpr-ctx_encoder-single-nq-base")
+        self.context_model = DPRContextEncoder.from_pretrained("facebook/dpr-ctx_encoder-single-nq-base").to(device)
+
+    def train(self):
+        ### FIRST, TRAIN THE ENCODERS ###
+        NUM_EPOCHS = 100 ### NOTE: this is for small datasets, maybe 40 for larger ones?
+        BATCH_SIZE = 128
+
+        question_optim = torch.optim.Adam(self.question_model.parameters(), lr=1e-5, betas=(0.9, 0.999), eps=1e-08, weight_decay=0.0, amsgrad=False)
+        question_scheduler = get_guesser_scheduler(question_optim, 100, NUM_EPOCHS * (len(train_dataset) // BATCH_SIZE))
+
+        question_input_ids = self.question_tokenizer("Hello, is my dog cute ?", return_tensors="pt")["input_ids"]
+        question_embeddings = self.question_model(question_input_ids).pooler_output
+
+        context_input_ids = self.context_tokenizer("Hello, is my dog cute ?", return_tensors="pt")["input_ids"]
+        context_embeddings = self.context_model(context_input_ids).pooler_output
+
+        ### THEN, BUILD THE FAISS INDEX OF CONTEXT VECTORS ###
 
 
 class ReRanker(BaseReRanker):
