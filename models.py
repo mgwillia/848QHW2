@@ -1,6 +1,7 @@
 from typing import List, Union, Tuple
 from base_models import BaseGuesser, BaseReRanker, BaseRetriever, BaseAnswerExtractor
-from qbdata import WikiLookup
+from qbdata import WikiLookup, QantaDatabase
+from guess_train_dataset import GuessTrainDataset
 
 import torch
 import torch.nn.functional as F
@@ -67,18 +68,27 @@ def get_guesser_scheduler(optimizer, warmup_steps, total_training_steps, steps_s
 class Guesser(BaseGuesser):
     """You can implement your own Bert based Guesser here"""
     def __init__(self) -> None:
-        self.tokenizer = None
-        self.model = None
+        self.question_tokenizer = None
+        self.question_model = None
+        self.context_tokenizer = None
+        self.context_model = None
+        self.wiki_lookup = None
 
-    def load(self, model_identifier: str, max_model_length: int = 512):
+    def load(self):
         self.question_tokenizer = DPRQuestionEncoderTokenizer.from_pretrained("facebook/dpr-question_encoder-single-nq-base")
         self.question_model = DPRQuestionEncoder.from_pretrained("facebook/dpr-question_encoder-single-nq-base").to(device)
 
         self.context_tokenizer = DPRContextEncoderTokenizer.from_pretrained("facebook/dpr-ctx_encoder-single-nq-base")
         self.context_model = DPRContextEncoder.from_pretrained("facebook/dpr-ctx_encoder-single-nq-base").to(device)
 
-    def train(self):
-        ### FIRST, TRAIN THE ENCODERS ###
+        self.wiki_lookup = WikiLookup('data/wiki_lookup.2018.json')
+
+    def train(self, training_data: QantaDatabase, limit: int=-1):
+
+        ### FIRST, PREP THE DATA ###
+        train_dataset = GuessTrainDataset(training_data, self.question_tokenizer, self.context_tokenizer, self.wiki_lookup)
+
+        ### THEN, TRAIN THE ENCODERS ###
         NUM_EPOCHS = 100 ### NOTE: this is for small datasets, maybe 40 for larger ones?
         BATCH_SIZE = 128
 
