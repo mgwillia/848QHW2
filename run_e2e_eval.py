@@ -149,7 +149,7 @@ if __name__ == "__main__":
 
     if args.debug_run:
         print('Running only on 20 examples.') # Change this to suit your iteration speed
-        eval_questions = eval_questions[:20]
+        eval_questions = eval_questions[:200]
 
     # Load the Model
     model = QuizBowlSystem()

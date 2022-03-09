@@ -31,11 +31,12 @@ fi
 echo "Running tfidf_guesser.py..."
 
 # Only run this when you change the train data for guesser
-python tfidf_guesser.py \
-    --guesstrain="${data_dir}/qanta.train.2018.json" \
-    --guessdev="${data_dir}/qanta.dev.2018.json" \
-    --model_path="models/tfidf.pickle" || exit 1
+#python tfidf_guesser.py \
+#    --guesstrain="${data_dir}/qanta.train.2018.json" \
+#    --guessdev="${data_dir}/qanta.dev.2018.json" \
+#    --model_path="models/tfidf.pickle" || exit 1
 
 # Remove the debug flag if you really want to run on eval set
-python run_e2e_eval.py --debug_run 
+python run_e2e_eval.py --mode="eval"
+#python run_e2e_eval.py --debug_run --mode="eval"
 

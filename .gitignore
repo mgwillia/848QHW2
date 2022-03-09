@@ -3,3 +3,5 @@ models/
 data/
 logs
 .idea
+.DS_STORE
+__pycache__
