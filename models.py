@@ -364,7 +364,7 @@ if __name__ == "__main__":
     parser.add_argument("--train_data", default="data/small.guesstrain.json", type=str)
     parser.add_argument("--dev_data", default="data/small.guessdev.json", type=str)
     parser.add_argument("--limit", default=-1, type=int)
-    parser.add_argument("--show_confusion_matrix", default=False, type=bool)
+    parser.add_argument("--show_confusion_matrix", default=True, type=bool)
 
     flags = parser.parse_args()
 
