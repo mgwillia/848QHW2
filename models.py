@@ -1,4 +1,4 @@
-from typing import List, Union, Tuple, Optional
+from typing import List, Union, Tuple, Optional, Dict
 from collections import defaultdict
 from base_models import BaseGuesser, BaseReRanker, BaseRetriever, BaseAnswerExtractor
 from qbdata import WikiLookup, QantaDatabase
@@ -6,15 +6,17 @@ from guess_train_dataset import GuessTrainDataset
 
 import faiss
 import torch
+import tqdm
 import argparse
 import os
 import torch.nn.functional as F
 from transformers import BertForSequenceClassification, pipeline
 from transformers import AutoTokenizer, AutoModelForQuestionAnswering, AutoModelForSequenceClassification
-from transformers import DPRQuestionEncoder, DPRQuestionEncoderTokenizer, DPRContextEncoder, DPRContextEncoderTokenizer
+from transformers import DPRQuestionEncoder, BertTokenizerFast, DPRContextEncoder
 
 # Change this based on the GPU you use on your machine
 device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 
 class BiEncoderNllLoss(torch.nn.Module):
@@ -72,18 +74,16 @@ def get_guesser_scheduler(optimizer, warmup_steps, total_training_steps, steps_s
 class Guesser(BaseGuesser):
     """You can implement your own Bert based Guesser here"""
     def __init__(self) -> None:
-        self.question_tokenizer = None
+        self.tokenizer = None
         self.question_model = None
-        self.context_tokenizer = None
         self.context_model = None
         self.wiki_lookup = None
         self.index = None
 
     def load(self):
-        self.question_tokenizer = DPRQuestionEncoderTokenizer.from_pretrained("facebook/dpr-question_encoder-single-nq-base")
+        self.tokenizer = BertTokenizerFast.from_pretrained("bert-base-uncased")
         self.question_model = DPRQuestionEncoder.from_pretrained("facebook/dpr-question_encoder-single-nq-base").to(device)
 
-        self.context_tokenizer = DPRContextEncoderTokenizer.from_pretrained("facebook/dpr-ctx_encoder-single-nq-base")
         self.context_model = DPRContextEncoder.from_pretrained("facebook/dpr-ctx_encoder-single-nq-base").to(device)
 
         self.wiki_lookup = WikiLookup('data/wiki_lookup.2018.json')
@@ -92,10 +92,12 @@ class Guesser(BaseGuesser):
         NUM_EPOCHS = 100 ### NOTE: this is for small datasets, maybe 40 for larger ones?
         BATCH_SIZE = 128
 
+        self.load()
+
         ### FIRST, PREP THE DATA ###
-        train_dataset = GuessTrainDataset(training_data, self.question_tokenizer, self.context_tokenizer, self.wiki_lookup, True)
+        train_dataset = GuessTrainDataset(training_data, self.tokenizer, self.wiki_lookup, 'train')
         train_dataloader = torch.utils.data.DataLoader(train_dataset, num_workers=4, batch_size=BATCH_SIZE, pin_memory=True, drop_last=True, shuffle=True)
-        dev_dataset = GuessTrainDataset(dev_data, self.question_tokenizer, self.context_tokenizer, self.wiki_lookup, True)
+        dev_dataset = GuessTrainDataset(dev_data, self.tokenizer, self.wiki_lookup, 'dev')
         dev_dataloader = torch.utils.data.DataLoader(dev_dataset, num_workers=4, batch_size=BATCH_SIZE*2, pin_memory=True, drop_last=False, shuffle=False)
 
         ### THEN, TRAIN THE ENCODERS ###
@@ -105,6 +107,7 @@ class Guesser(BaseGuesser):
         context_scheduler = get_guesser_scheduler(context_optim, 100, NUM_EPOCHS * (len(train_dataset) // BATCH_SIZE))
         loss_fn = BiEncoderNllLoss()
 
+        print('Ready to finetune', flush=True)
         self.question_model.train()
         self.context_model.train()
         for _ in range(NUM_EPOCHS):
@@ -112,7 +115,7 @@ class Guesser(BaseGuesser):
                 questions, answers, pages = batch
                 question_embeddings = self.question_model(questions).pooler_output
                 context_embeddings = self.context_model(answers).pooler_output
-                batch_loss = loss_fn(question_embeddings, context_embeddings, list(range(question_embeddings.shape[0])))
+                batch_loss, _ = loss_fn(question_embeddings, context_embeddings, list(range(question_embeddings.shape[0])))
 
                 question_optim.zero_grad()
                 context_optim.zero_grad()
@@ -122,13 +125,15 @@ class Guesser(BaseGuesser):
                 question_scheduler.step()
                 context_scheduler.step()
 
+                print(f'Loss: {batch_loss.item()}', flush=True)
+
         torch.save(self.question_model, 'models/guesser_question_encoder.pth.tar')
         torch.save(self.context_model, 'models/guesser_context_encoder.pth.tar')
 
     def train(self, training_data: QantaDatabase, limit: int=-1):
         ### BUILD THE FAISS INDEX OF CONTEXT VECTORS ###
         BATCH_SIZE = 256
-        DIMENSION = 512 ### TODO: double check embed length
+        DIMENSION = 768 ### TODO: double check embed length
         if os.path.isfile('models/guesser_question_encoder.pth.tar'):
             self.question_model = torch.load('models/guesser_question_encoder.pth.tar', map_location=device).to(device)
         else:
@@ -139,7 +144,7 @@ class Guesser(BaseGuesser):
             self.context_model = DPRContextEncoder.from_pretrained("facebook/dpr-ctx_encoder-single-nq-base").to(device)
 
 
-        train_dataset = GuessTrainDataset(training_data, self.question_tokenizer, self.context_tokenizer, self.wiki_lookup)
+        train_dataset = GuessTrainDataset(training_data, self.tokenizer, self.wiki_lookup, 'train')
         train_dataloader = torch.utils.data.DataLoader(train_dataset, num_workers=4, batch_size=BATCH_SIZE, pin_memory=True, drop_last=False, shuffle=False)
 
         self.question_model.eval()
@@ -163,11 +168,11 @@ class Guesser(BaseGuesser):
         questions -- Raw text of questions in a list
         max_n_guesses -- How many top guesses to return
         """ 
-        DIMENSION = 512 ### TODO: double check embed length
+        DIMENSION = 768 ### TODO: double check embed length
         question_embeddings = torch.zeros((len(questions), DIMENSION))
         with torch.no_grad():
             for i, question in enumerate(questions):
-                question_embeddings[i] = self.question_model(self.question_tokenizer(question, return_tensors="pt")["input_ids"]).pooler_output
+                question_embeddings[i] = self.question_model(self.tokenizer(question, return_tensors="pt", max_length=512, truncation=True, padding=True)["input_ids"]).pooler_output
 
         neighbor_scores, neighbor_indices = self.index.search(question_embeddings, max_n_guesses)     #  returns neighbor embeddings, indices of neighbor embeddings
         #print(neighbor_indices[:5])                   # neighbors of the 5 first queries
@@ -361,8 +366,8 @@ class AnswerExtractor:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--train_data", default="data/small.guesstrain.json", type=str)
-    parser.add_argument("--dev_data", default="data/small.guessdev.json", type=str)
+    parser.add_argument("--train_data", default="data/qanta.train.2018.json", type=str)
+    parser.add_argument("--dev_data", default="data/qanta.dev.2018.json", type=str)
     parser.add_argument("--limit", default=-1, type=int)
     parser.add_argument("--show_confusion_matrix", default=True, type=bool)
 
@@ -373,7 +378,7 @@ if __name__ == "__main__":
     guessdev = QantaDatabase(flags.dev_data)
     
     guesser = Guesser()
-    guesser.finetune(guesstrain, limit=flags.limit)
+    guesser.finetune(guesstrain, guessdev, limit=flags.limit)
 
     if flags.show_confusion_matrix:
         confusion = guesser.confusion_matrix(guessdev, limit=-1)
