@@ -1,9 +1,13 @@
-from typing import List, Union, Tuple
+from typing import List, Union, Tuple, Optional
+from collections import defaultdict
 from base_models import BaseGuesser, BaseReRanker, BaseRetriever, BaseAnswerExtractor
 from qbdata import WikiLookup, QantaDatabase
 from guess_train_dataset import GuessTrainDataset
 
+import faiss
 import torch
+import argparse
+import os
 import torch.nn.functional as F
 from transformers import BertForSequenceClassification, pipeline
 from transformers import AutoTokenizer, AutoModelForQuestionAnswering, AutoModelForSequenceClassification
@@ -73,6 +77,7 @@ class Guesser(BaseGuesser):
         self.context_tokenizer = None
         self.context_model = None
         self.wiki_lookup = None
+        self.index = None
 
     def load(self):
         self.question_tokenizer = DPRQuestionEncoderTokenizer.from_pretrained("facebook/dpr-question_encoder-single-nq-base")
@@ -83,25 +88,128 @@ class Guesser(BaseGuesser):
 
         self.wiki_lookup = WikiLookup('data/wiki_lookup.2018.json')
 
-    def train(self, training_data: QantaDatabase, limit: int=-1):
-
-        ### FIRST, PREP THE DATA ###
-        train_dataset = GuessTrainDataset(training_data, self.question_tokenizer, self.context_tokenizer, self.wiki_lookup)
-
-        ### THEN, TRAIN THE ENCODERS ###
+    def finetune(self, training_data: QantaDatabase, dev_data: QantaDatabase, limit: int=-1):
         NUM_EPOCHS = 100 ### NOTE: this is for small datasets, maybe 40 for larger ones?
         BATCH_SIZE = 128
 
+        ### FIRST, PREP THE DATA ###
+        train_dataset = GuessTrainDataset(training_data, self.question_tokenizer, self.context_tokenizer, self.wiki_lookup, True)
+        train_dataloader = torch.utils.data.DataLoader(train_dataset, num_workers=4, batch_size=BATCH_SIZE, pin_memory=True, drop_last=True, shuffle=True)
+        dev_dataset = GuessTrainDataset(dev_data, self.question_tokenizer, self.context_tokenizer, self.wiki_lookup, True)
+        dev_dataloader = torch.utils.data.DataLoader(dev_dataset, num_workers=4, batch_size=BATCH_SIZE*2, pin_memory=True, drop_last=False, shuffle=False)
+
+        ### THEN, TRAIN THE ENCODERS ###
         question_optim = torch.optim.Adam(self.question_model.parameters(), lr=1e-5, betas=(0.9, 0.999), eps=1e-08, weight_decay=0.0, amsgrad=False)
+        context_optim = torch.optim.Adam(self.context_model.parameters(), lr=1e-5, betas=(0.9, 0.999), eps=1e-08, weight_decay=0.0, amsgrad=False)
         question_scheduler = get_guesser_scheduler(question_optim, 100, NUM_EPOCHS * (len(train_dataset) // BATCH_SIZE))
+        context_scheduler = get_guesser_scheduler(context_optim, 100, NUM_EPOCHS * (len(train_dataset) // BATCH_SIZE))
+        loss_fn = BiEncoderNllLoss()
 
-        question_input_ids = self.question_tokenizer("Hello, is my dog cute ?", return_tensors="pt")["input_ids"]
-        question_embeddings = self.question_model(question_input_ids).pooler_output
+        self.question_model.train()
+        self.context_model.train()
+        for _ in range(NUM_EPOCHS):
+            for _, batch in enumerate(train_dataloader):
+                questions, answers, pages = batch
+                question_embeddings = self.question_model(questions).pooler_output
+                context_embeddings = self.context_model(answers).pooler_output
+                batch_loss = loss_fn(question_embeddings, context_embeddings, list(range(question_embeddings.shape[0])))
 
-        context_input_ids = self.context_tokenizer("Hello, is my dog cute ?", return_tensors="pt")["input_ids"]
-        context_embeddings = self.context_model(context_input_ids).pooler_output
+                question_optim.zero_grad()
+                context_optim.zero_grad()
+                batch_loss.backward()
+                question_optim.step()
+                context_optim.step()
+                question_scheduler.step()
+                context_scheduler.step()
 
-        ### THEN, BUILD THE FAISS INDEX OF CONTEXT VECTORS ###
+        torch.save(self.question_model, 'models/guesser_question_encoder.pth.tar')
+        torch.save(self.context_model, 'models/guesser_context_encoder.pth.tar')
+
+    def train(self, training_data: QantaDatabase, limit: int=-1):
+        ### BUILD THE FAISS INDEX OF CONTEXT VECTORS ###
+        BATCH_SIZE = 256
+        DIMENSION = 512 ### TODO: double check embed length
+        if os.path.isfile('models/guesser_question_encoder.pth.tar'):
+            self.question_model = torch.load('models/guesser_question_encoder.pth.tar', map_location=device).to(device)
+        else:
+            self.question_model = DPRQuestionEncoder.from_pretrained("facebook/dpr-question_encoder-single-nq-base").to(device)
+        if os.path.isfile('models/guesser_context_encoder.pth.tar'):
+            self.context_model = torch.load('models/guesser_context_encoder.pth.tar', map_location=device)
+        else:
+            self.context_model = DPRContextEncoder.from_pretrained("facebook/dpr-ctx_encoder-single-nq-base").to(device)
+
+
+        train_dataset = GuessTrainDataset(training_data, self.question_tokenizer, self.context_tokenizer, self.wiki_lookup)
+        train_dataloader = torch.utils.data.DataLoader(train_dataset, num_workers=4, batch_size=BATCH_SIZE, pin_memory=True, drop_last=False, shuffle=False)
+
+        self.question_model.eval()
+        self.context_model.eval()
+        context_embeddings = torch.zeros((len(train_dataset), DIMENSION))
+        with torch.no_grad():
+            for i, batch in enumerate(train_dataloader):
+                _, answers, _ = batch
+                context_embeddings[i*BATCH_SIZE:min(len(train_dataset), (i+1)*BATCH_SIZE)] = self.context_model(answers).pooler_output
+
+        self.index = faiss.IndexFlatL2(DIMENSION)
+        print(self.index.is_trained)
+        self.index.add(context_embeddings)
+        print(self.index.ntotal)
+
+    def guess(self, questions: List[str], max_n_guesses: Optional[int]) -> List[List[Tuple[str, float]]]:
+        """
+        Given the text of questions, generate guesses (a tuple of page id and score) for each one.
+
+        Keyword arguments:
+        questions -- Raw text of questions in a list
+        max_n_guesses -- How many top guesses to return
+        """ 
+        DIMENSION = 512 ### TODO: double check embed length
+        question_embeddings = torch.zeros((len(questions), DIMENSION))
+        with torch.no_grad():
+            for i, question in enumerate(questions):
+                question_embeddings[i] = self.question_model(self.question_tokenizer(question, return_tensors="pt")["input_ids"]).pooler_output
+
+        neighbor_scores, neighbor_indices = self.index.search(question_embeddings, max_n_guesses)     #  returns neighbor embeddings, indices of neighbor embeddings
+        #print(neighbor_indices[:5])                   # neighbors of the 5 first queries
+        #print(neighbor_indices[-5:])                  # neighbors of the 5 last queries
+        guesses = []
+        for i in range(len(questions)):
+            guess = []
+            for j in range(max_n_guesses):
+                guess.append((neighbor_indices[i][j], neighbor_scores[i][j]))
+            guesses.append(guess)
+        return guesses
+
+    def confusion_matrix(self, evaluation_data: QantaDatabase, limit=-1) -> Dict[str, Dict[str, int]]:
+        """
+        Given a matrix of test examples and labels, compute the confusion
+        matrixfor the current classifier.  Should return a dictionary of
+        dictionaries where d[ii][jj] is the number of times an example
+        with true label ii was labeled as jj.
+
+        :param evaluation_data: Database of questions and answers
+        :param limit: How many evaluation questions to use
+        """
+
+        questions = [x.text for x in evaluation_data.guess_dev_questions]
+        answers = [x.page for x in evaluation_data.guess_dev_questions]
+
+        if limit > 0:
+            questions = questions[:limit]
+            answers = answers[:limit]
+
+        print("Eval on %i question" % len(questions))
+            
+        d = defaultdict(dict)
+        data_index = 0
+        guesses = [x[0][0] for x in self.guess(questions, max_n_guesses=1)]
+        for gg, yy in zip(guesses, answers):
+            d[yy][gg] = d[yy].get(gg, 0) + 1
+            data_index += 1
+            if data_index % 100 == 0:
+                print("%i/%i for confusion matrix" % (data_index,
+                                                      len(guesses)))
+        return d
 
 
 class ReRanker(BaseReRanker):
@@ -248,4 +356,31 @@ class AnswerExtractor:
             answer_ids = [tokens[s:e] for tokens, s, e in zip(input_tokens, start_index, end_index)]
 
             return self.tokenizer.batch_decode(answer_ids)
-        
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument("--train_data", default="data/small.guesstrain.json", type=str)
+    parser.add_argument("--dev_data", default="data/small.guessdev.json", type=str)
+    parser.add_argument("--limit", default=-1, type=int)
+    parser.add_argument("--show_confusion_matrix", default=False, type=bool)
+
+    flags = parser.parse_args()
+
+    print("Loading %s" % flags.train_data)
+    guesstrain = QantaDatabase(flags.train_data)
+    guessdev = QantaDatabase(flags.dev_data)
+    
+    guesser = Guesser()
+    guesser.finetune(guesstrain, limit=flags.limit)
+
+    if flags.show_confusion_matrix:
+        confusion = guesser.confusion_matrix(guessdev, limit=-1)
+        print("Errors:\n=================================================")
+        for ii in confusion:
+            for jj in confusion[ii]:
+                if ii != jj:
+                    print("%i\t%s\t%s\t" % (confusion[ii][jj], ii, jj))
+
+    
