@@ -1,8 +1,8 @@
 #!/bin/bash
 
-#SBATCH --job-name=matt_job_guess
-#SBATCH --output=logs/matt_job_guess.out.%j
-#SBATCH --error=logs/matt_job_guess.out.%j
+#SBATCH --job-name=matt_job_extract
+#SBATCH --output=logs/matt_job_extract.out.%j
+#SBATCH --error=logs/matt_job_extract.out.%j
 #SBATCH --time=36:00:00
 #SBATCH --account=abhinav
 #SBATCH --partition=dpart
@@ -14,6 +14,6 @@
 module load cuda/11.0.3
 
 srun bash -c "hostname;"
-srun bash -c "python models.py --train_guesser \
+srun bash -c "python models.py --train_extractor \
     --train_data data/qanta.train.2018.json \
     --dev_data data/qanta.dev.2018.json;"

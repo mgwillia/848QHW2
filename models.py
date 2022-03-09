@@ -572,6 +572,8 @@ if __name__ == "__main__":
     parser.add_argument("--dev_data", default="data/qanta.dev.2018.json", type=str)
     parser.add_argument("--limit", default=-1, type=int)
     parser.add_argument("--show_confusion_matrix", default=True, type=bool)
+    parser.add_argument("--train_guesser", action="store_true")
+    parser.add_argument("--train_extractor", action="store_true")
 
     flags = parser.parse_args()
 
@@ -579,13 +581,18 @@ if __name__ == "__main__":
     guesstrain = QantaDatabase(flags.train_data)
     guessdev = QantaDatabase(flags.dev_data)
     
-    guesser = Guesser()
-    guesser.finetune(guesstrain, guessdev, limit=flags.limit)
+    if flags.train_guesser:
+        guesser = Guesser()
+        guesser.finetune(guesstrain, guessdev, limit=flags.limit)
 
-    if flags.show_confusion_matrix:
-        confusion = guesser.confusion_matrix(guessdev, limit=-1)
-        print("Errors:\n=================================================")
-        for ii in confusion:
-            for jj in confusion[ii]:
-                if ii != jj:
-                    print("%i\t%s\t%s\t" % (confusion[ii][jj], ii, jj))
+        if flags.show_confusion_matrix:
+            confusion = guesser.confusion_matrix(guessdev, limit=-1)
+            print("Errors:\n=================================================")
+            for ii in confusion:
+                for jj in confusion[ii]:
+                    if ii != jj:
+                        print("%i\t%s\t%s\t" % (confusion[ii][jj], ii, jj))
+    elif flags.train_extractor:
+        extractor = AnswerExtractor()
+        extractor.load('csarron/bert-base-uncased-squad-v1')
+        extractor.train()
