@@ -55,9 +55,6 @@ class GuessTrainDataset(torch.utils.data.Dataset):
         return len(self.questions)
 
     def __getitem__(self, index):
-        for q in self.questions[index]:
-            print(q.shape)
-        print(self.answers[index].shape)
-        out = {'question': self.questions[index][random.randint(0, len(self.questions[index])-1)], 'answer_text': self.answers[index], 'answer_page': self.answer_pages[index]}
+        out = {'question': self.questions[index][random.randint(0, len(self.questions[index])-1)].squeeze(), 'answer_text': self.answers[index].squeeze(), 'answer_page': self.answer_pages[index]}
 
         return out

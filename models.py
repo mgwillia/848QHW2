@@ -129,7 +129,7 @@ class Guesser(BaseGuesser):
         self.context_model.train()
         for _ in range(NUM_EPOCHS):
             for _, batch in enumerate(train_dataloader):
-                questions, answers = batch['question'], batch['answer_text']
+                questions, answers = batch['question'].to(device), batch['answer_text'].to(device)
                 question_embeddings = self.question_model(questions).pooler_output
                 context_embeddings = self.context_model(answers).pooler_output
                 batch_loss, _ = loss_fn(question_embeddings, context_embeddings, list(range(question_embeddings.shape[0])))
@@ -169,7 +169,7 @@ class Guesser(BaseGuesser):
         context_embeddings = torch.zeros((len(train_dataset), DIMENSION))
         with torch.no_grad():
             for i, batch in enumerate(train_dataloader):
-                answers = batch['answer_text']
+                answers = batch['answer_text'].to(device)
                 context_embeddings[i*BATCH_SIZE:min(len(train_dataset), (i+1)*BATCH_SIZE)] = self.context_model(answers).pooler_output
 
         self.index = faiss.IndexFlatL2(DIMENSION)
@@ -189,7 +189,7 @@ class Guesser(BaseGuesser):
         question_embeddings = torch.zeros((len(questions), DIMENSION))
         with torch.no_grad():
             for i, question in enumerate(questions):
-                question_embeddings[i] = self.question_model(self.tokenizer(question, return_tensors="pt", max_length=512, truncation=True, padding='max_length')["input_ids"]).pooler_output
+                question_embeddings[i] = self.question_model(self.tokenizer(question, return_tensors="pt", max_length=512, truncation=True, padding='max_length')["input_ids"].to(device)).pooler_output
 
         neighbor_scores, neighbor_indices = self.index.search(question_embeddings, max_n_guesses)     #  returns neighbor embeddings, indices of neighbor embeddings
         #print(neighbor_indices[:5])                   # neighbors of the 5 first queries
