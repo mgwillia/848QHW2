@@ -30,7 +30,8 @@ class QuizBowlSystem:
         answer_extractor_base_model = "csarron/bert-base-uncased-squad-v1"
         self.answer_extractor = AnswerExtractor()
         print('Loading the Answer Extractor model...')
-        self.answer_extractor.load(answer_extractor_base_model)
+        self.answer_extractor.load(answer_extractor_base_model, "models/extractor")
+        # self.answer_extractor.load(answer_extractor_base_model)
 
     def retrieve_page(self, question: str, disable_reranking=False) -> str:
         """Retrieves the wikipedia page name for an input question."""
