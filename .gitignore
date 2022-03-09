@@ -3,3 +3,4 @@ models/
 data/
 logs
 __pycache__/
+env/
