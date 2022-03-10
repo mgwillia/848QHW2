@@ -1,12 +1,15 @@
-import datasets
 import random
-import torch
 
+import datasets
+import torch
 from accelerate import Accelerator
-from qbdata import QantaDatabase, WikiLookup
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
-from transformers import AdamW, AutoTokenizer, AutoModelForSequenceClassification, DataCollatorWithPadding, get_scheduler
+from transformers import (AdamW, AutoModelForSequenceClassification,
+                          AutoTokenizer, DataCollatorWithPadding,
+                          get_scheduler)
+
+from qbdata import QantaDatabase, WikiLookup
 
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
@@ -38,6 +41,7 @@ def get_prepped_reranker_data():
     data_train = get_prepped_reranker_dataset_split(qanta_db_train.guess_train_questions, wiki_data)
     data_dev = get_prepped_reranker_dataset_split(qanta_db_dev.guess_dev_questions, wiki_data)
     data = datasets.DatasetDict({'train': data_train, 'validation': data_dev})
+    return data
 
 if __name__ == "__main__":
     NUM_EPOCHS = 3
