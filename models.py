@@ -14,17 +14,6 @@ from transformers import EarlyStoppingCallback, get_cosine_with_hard_restarts_sc
 # Change this based on the GPU you use on your machine
 device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
 
-def make_dictionary(data: List[Question]):
-    data_dict = {"text": [], "page": [], "first_sentence": [], "last_sentence": [], "answer": [], "category": []}
-    for question in data:
-        data_dict["text"].append(question.text)
-        data_dict["page"].append(question.page)
-        data_dict["first_sentence"].append(question.first_sentence)
-        data_dict["last_sentence"].append(question.sentences[-1])
-        data_dict["answer"].append(question.answer)
-        data_dict["category"].append(question.category)
-    return data_dict
-
 
 def make_dictionary(data: List[Question]):
     data_dict = {"text": [], "page": [], "first_sentence": [], "last_sentence": [], "answer": [], "category": []}
