@@ -8,6 +8,7 @@ from datasets import Dataset, load_dataset
 
 import faiss
 import torch
+import numpy as np
 import tqdm
 import argparse
 import os
@@ -41,9 +42,12 @@ class BiEncoderNllLoss(torch.nn.Module):
         loss modifications. For example - weighted NLL with different factors for hard vs regular negatives.
         :return: a tuple of loss value and amount of correct predictions per batch
         """
-        b, n = q_vectors.shape
-        scores = torch.bmm(q_vectors.view(b, 1, n), ctx_vectors.view(b, n, 1)).squeeze()
-        print(scores.shape) # should be b, b
+        scores = torch.matmul(q_vectors, torch.transpose(ctx_vectors, 0, 1))
+
+        if len(q_vectors.size()) > 1:
+            q_num = q_vectors.size(0)
+            scores = scores.view(q_num, -1)
+
         softmax_scores = F.log_softmax(scores, dim=1)
 
         loss = F.nll_loss(
@@ -106,8 +110,10 @@ class Guesser(BaseGuesser):
         self.wiki_lookup = WikiLookup('data/wiki_lookup.2018.json')
 
     def finetune(self, training_data: QantaDatabase, dev_data: QantaDatabase, limit: int=-1):
-        NUM_EPOCHS = 100 ### NOTE: this is for small datasets, maybe 40 for larger ones?
-        BATCH_SIZE = 128
+        NUM_EPOCHS = 10 ### NOTE: this is for small datasets, maybe 40 for larger ones?
+        BASE_BATCH_SIZE = 128
+        BATCH_SIZE = 4
+        LR_SCALE_FACTOR = BATCH_SIZE / BASE_BATCH_SIZE
 
         self.load()
 
@@ -118,8 +124,8 @@ class Guesser(BaseGuesser):
         dev_dataloader = torch.utils.data.DataLoader(dev_dataset, num_workers=4, batch_size=BATCH_SIZE*2, pin_memory=True, drop_last=False, shuffle=False)
 
         ### THEN, TRAIN THE ENCODERS ###
-        question_optim = torch.optim.Adam(self.question_model.parameters(), lr=1e-5, betas=(0.9, 0.999), eps=1e-08, weight_decay=0.0, amsgrad=False)
-        context_optim = torch.optim.Adam(self.context_model.parameters(), lr=1e-5, betas=(0.9, 0.999), eps=1e-08, weight_decay=0.0, amsgrad=False)
+        question_optim = torch.optim.Adam(self.question_model.parameters(), lr=1e-5*LR_SCALE_FACTOR, betas=(0.9, 0.999), eps=1e-08, weight_decay=0.0, amsgrad=False)
+        context_optim = torch.optim.Adam(self.context_model.parameters(), lr=1e-5*LR_SCALE_FACTOR, betas=(0.9, 0.999), eps=1e-08, weight_decay=0.0, amsgrad=False)
         question_scheduler = get_guesser_scheduler(question_optim, 100, NUM_EPOCHS * (len(train_dataset) // BATCH_SIZE))
         context_scheduler = get_guesser_scheduler(context_optim, 100, NUM_EPOCHS * (len(train_dataset) // BATCH_SIZE))
         loss_fn = BiEncoderNllLoss()
@@ -127,8 +133,9 @@ class Guesser(BaseGuesser):
         print('Ready to finetune', flush=True)
         self.question_model.train()
         self.context_model.train()
-        for _ in range(NUM_EPOCHS):
-            for _, batch in enumerate(train_dataloader):
+        losses = []
+        for epoch_num in range(NUM_EPOCHS):
+            for batch_num, batch in enumerate(train_dataloader):
                 questions, answers = batch['question'].to(device), batch['answer_text'].to(device)
                 question_embeddings = self.question_model(questions).pooler_output
                 context_embeddings = self.context_model(answers).pooler_output
@@ -142,10 +149,16 @@ class Guesser(BaseGuesser):
                 question_scheduler.step()
                 context_scheduler.step()
 
-                print(f'Loss: {batch_loss.item()}', flush=True)
+                losses.append(batch_loss.item())
 
-        torch.save(self.question_model, 'models/guesser_question_encoder.pth.tar')
-        torch.save(self.context_model, 'models/guesser_context_encoder.pth.tar')
+                if batch_num % 250 == 249:
+                    print(f'Batch Num: {batch_num}, Loss: {np.array(losses).mean()}', flush=True)
+                    losses = []
+
+            torch.save(self.question_model, f'models/guesser_question_encoder_{epoch_num}.pth.tar')
+            torch.save(self.context_model, f'models/guesser_context_encoder_{epoch_num}.pth.tar')
+        torch.save(self.question_model, f'models/guesser_question_encoder.pth.tar')
+        torch.save(self.context_model, f'models/guesser_context_encoder.pth.tar')
 
     def train(self, training_data: QantaDatabase, limit: int=-1):
         ### BUILD THE FAISS INDEX OF CONTEXT VECTORS ###
@@ -438,6 +451,8 @@ class AnswerExtractor:
         """Fill this method with code that finetunes Answer Extraction task on QuizBowl examples.
         Feel free to change and modify the signature of the method to suit your needs."""
 
+        NUM_EPOCHS = 10
+
         # train_questions = QantaDatabase('data/qanta.train.2018.json').train_questions
         # eval_questions = QantaDatabase('data/qanta.dev.2018.json').dev_questions
         # train_dataset = Dataset.from_dict(self.gen_train_data(make_dictionary(train_questions))).shuffle(seed=42)
@@ -515,7 +530,7 @@ class AnswerExtractor:
                                           load_best_model_at_end=True,
                                           per_device_train_batch_size=4,
                                           per_device_eval_batch_size=4,
-                                          num_train_epochs=1,
+                                          num_train_epochs=NUM_EPOCHS,
                                           metric_for_best_model="eval_loss",
                                           fp16=True,
                                           evaluation_strategy="epoch",
@@ -526,7 +541,7 @@ class AnswerExtractor:
                                           logging_steps=72,
                                           )
 
-        num_training_steps = 1 * len(tokenized_train_dataset["train"])
+        num_training_steps = NUM_EPOCHS * len(tokenized_train_dataset["train"])
         optimizer = AdamW(self.model.parameters(), lr=2e-5, weight_decay=0.01)
         lr_scheduler = get_cosine_with_hard_restarts_schedule_with_warmup(
             optimizer=optimizer,
