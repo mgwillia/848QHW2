@@ -269,7 +269,6 @@ class ReRanker(BaseReRanker):
 
         return datasets.Dataset.from_dict({'questions':train_questions, 'labels':train_labels, 'content':train_passages})
 
-
     def get_prepped_reranker_data(self):
         qanta_db_train = QantaDatabase('data/qanta.train.2018.json')
         qanta_db_dev = QantaDatabase('data/qanta.dev.2018.json')
@@ -503,7 +502,7 @@ class AnswerExtractor:
         inputs["end_positions"] = end_positions
         return inputs
 
-    def train(self, evaluating_dataset=None):
+    def train(self):
         """Fill this method with code that finetunes Answer Extraction task on QuizBowl examples.
         Feel free to change and modify the signature of the method to suit your needs."""
 
@@ -643,14 +642,15 @@ if __name__ == "__main__":
     parser.add_argument("--show_confusion_matrix", default=True, type=bool)
     parser.add_argument("--train_guesser", action="store_true")
     parser.add_argument("--train_extractor", action="store_true")
+    parser.add_argument("--train_reranker", action="store_true")
 
     flags = parser.parse_args()
-
-    print("Loading %s" % flags.train_data)
-    guesstrain = QantaDatabase(flags.train_data)
-    guessdev = QantaDatabase(flags.dev_data)
     
     if flags.train_guesser:
+        print("Loading %s" % flags.train_data)
+        guesstrain = QantaDatabase(flags.train_data)
+        guessdev = QantaDatabase(flags.dev_data)
+
         guesser = Guesser()
         guesser.load(from_checkpoint=True)
         guesser.finetune(guesstrain, guessdev, limit=flags.limit)
@@ -665,7 +665,16 @@ if __name__ == "__main__":
                 for jj in confusion[ii]:
                     if ii != jj:
                         print("%i\t%s\t%s\t" % (confusion[ii][jj], ii, jj))
+
     elif flags.train_extractor:
         extractor = AnswerExtractor()
         extractor.load('csarron/bert-base-uncased-squad-v1')
         extractor.train()
+
+    elif flags.train_reranker:
+        reranker = ReRanker()
+        reranker.load('amberoad/bert-multilingual-passage-reranking-msmarco')
+        reranker.train()
+
+    else:
+        print('Why did you not give me anything to train?')

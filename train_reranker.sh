@@ -14,4 +14,4 @@
 module load cuda/11.0.3
 
 srun bash -c "hostname;"
-srun bash -c "python finetune_reranker.py;"
+srun bash -c "python models.py --train_reranker;"

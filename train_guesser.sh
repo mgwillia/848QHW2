@@ -14,6 +14,4 @@
 module load cuda/11.0.3
 
 srun bash -c "hostname;"
-srun bash -c "python models.py --train_guesser \
-    --train_data data/qanta.train.2018.json \
-    --dev_data data/qanta.dev.2018.json;"
+srun bash -c "python models.py --train_guesser;"
