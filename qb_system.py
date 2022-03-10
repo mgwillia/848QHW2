@@ -14,7 +14,7 @@ class QuizBowlSystem:
 
     def __init__(self) -> None:
         """Fill this method to create attributes, load saved models, etc
-        Don't have any arguments to this constructor. 
+        Don't have any arguments to this constructor.
         If you really want to have arguments, they should have some default values set.
         """
         guesser = TfidfGuesser()
@@ -35,20 +35,21 @@ class QuizBowlSystem:
         identifier = 'amberoad/bert-multilingual-passage-reranking-msmarco'
         reranker.load(identifier, path)
 
-        
+
         self.retriever = Retriever(guesser, reranker, wiki_lookup=self.wiki_lookup)
-        
+
         answer_extractor_base_model = "csarron/bert-base-uncased-squad-v1"
         self.answer_extractor = AnswerExtractor()
         print('Loading the Answer Extractor model...')
-        self.answer_extractor.load(answer_extractor_base_model)
-        
+        self.answer_extractor.load(answer_extractor_base_model, "models/extractor")
+        # self.answer_extractor.load(answer_extractor_base_model)
+
     def retrieve_page(self, question: str, disable_reranking=False) -> str:
         """Retrieves the wikipedia page name for an input question."""
         with torch.no_grad():
             page = self.retriever.retrieve_answer_document(question, disable_reranking=disable_reranking)
             return page
-    
+
     def execute_query(self, question: str, *, get_page=True) -> str:
         """Populate this method to do the following:
         1. Use the Retriever to get the top wikipedia page.
@@ -75,8 +76,3 @@ if __name__ == "__main__":
 
     for question in tqdm(small_set_questions):
         answer = qa.execute_query(question.first_sentence)
-        
-
-
-    
-
