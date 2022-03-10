@@ -33,7 +33,8 @@ class QuizBowlSystem:
 
         path = 'models/reranker-finetuned-full'
         identifier = 'amberoad/bert-multilingual-passage-reranking-msmarco'
-        reranker.load(identifier, path)
+        #pass finefuned model path to the reranker
+        reranker.load(identifier, "")
 
 
         self.retriever = Retriever(guesser, reranker, wiki_lookup=self.wiki_lookup)
@@ -66,12 +67,7 @@ if __name__ == "__main__":
     qa = QuizBowlSystem()
     #qanta_db_dev = QantaDatabase('../data/qanta.dev.2018.json')
 
-
     qanta_db_dev = QantaDatabase('../data/small.guessdev.json')
-
-
-
-
     small_set_questions = qanta_db_dev.all_questions[:10]
 
     for question in tqdm(small_set_questions):
