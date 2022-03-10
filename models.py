@@ -77,14 +77,12 @@ class Guesser(BaseGuesser):
         self.tokenizer = BertTokenizerFast.from_pretrained("bert-base-uncased")
         self.wiki_lookup = WikiLookup('data/wiki_lookup.2018.json')
 
-        if os.path.isfile('models/guesser_question_encoder.pth.tar') and from_checkpoint:
-            self.question_model = torch.load('models/guesser_question_encoder.pth.tar', map_location=device).to(device)
-        else:
-            self.question_model = DPRQuestionEncoder.from_pretrained("facebook/dpr-question_encoder-single-nq-base").to(device)
-        if os.path.isfile('models/guesser_context_encoder.pth.tar') and from_checkpoint:
-            self.context_model = torch.load('models/guesser_context_encoder.pth.tar', map_location=device)
-        else:
-            self.context_model = DPRContextEncoder.from_pretrained("facebook/dpr-ctx_encoder-single-nq-base").to(device)
+        self.question_model = DPRQuestionEncoder.from_pretrained("facebook/dpr-question_encoder-single-nq-base").to(device)
+        self.context_model = DPRContextEncoder.from_pretrained("facebook/dpr-ctx_encoder-single-nq-base").to(device)
+        if os.path.isfile('models/guesser_question_encoder_4.pth.tar') and from_checkpoint:
+            self.question_model = torch.load('models/guesser_question_encoder_4.pth.tar', map_location=device)
+        if os.path.isfile('models/guesser_context_encoder_4.pth.tar') and from_checkpoint:
+            self.context_model = torch.load('models/guesser_context_encoder_4.pth.tar', map_location=device)
 
     def get_guesser_scheduler(self, optimizer, warmup_steps, total_training_steps, steps_shift=0, last_epoch=-1):
 
@@ -155,6 +153,7 @@ class Guesser(BaseGuesser):
         torch.save(self.context_model, f'models/guesser_context_encoder.pth.tar')
 
     def train(self, training_data: QantaDatabase, limit: int=-1):
+        print('Computing context embeddings for Guesser', flush=True)
         ### GET TRAIN EMBEDDINGS ###
         BATCH_SIZE = 256
         DIMENSION = 768 ### TODO: double check embed length
@@ -174,7 +173,8 @@ class Guesser(BaseGuesser):
 
     def build_faiss_index(self):
         DIMENSION = 768 ### TODO: double check embed length
-        context_embeddings = torch.load('models/context_embeddings.pth.tar')
+        context_embeddings = torch.load('models/context_embeddings.pth.tar').numpy()
+        print(f'Confirm the context embedding dim is {DIMENSION} for faiss: {context_embeddings.shape}', flush=True)
         self.index = faiss.IndexFlatL2(DIMENSION)
         print(self.index.is_trained)
         self.index.add(context_embeddings)
@@ -653,7 +653,7 @@ if __name__ == "__main__":
 
         guesser = Guesser()
         guesser.load(from_checkpoint=True)
-        guesser.finetune(guesstrain, guessdev, limit=flags.limit)
+        #guesser.finetune(guesstrain, guessdev, limit=flags.limit)
         guesser.train(guesstrain)
         guesser.build_faiss_index()
 

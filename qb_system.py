@@ -24,7 +24,7 @@ class QuizBowlSystem:
 
         print('Loading the Reranker model...')
         reranker = ReRanker()
-        path = 'models/reranker-finetuned-full'
+        path = 'models/reranker-finetuned-small_2'
         identifier = 'amberoad/bert-multilingual-passage-reranking-msmarco'
         reranker.load(identifier, path)
 
@@ -33,7 +33,7 @@ class QuizBowlSystem:
         answer_extractor_base_model = "csarron/bert-base-uncased-squad-v1"
         self.answer_extractor = AnswerExtractor()
         print('Loading the Answer Extractor model...')
-        self.answer_extractor.load(answer_extractor_base_model, "models/extractor")
+        self.answer_extractor.load(answer_extractor_base_model, "models/extractor/checkpoint-225856")
 
     def retrieve_page(self, question: str, disable_reranking=False) -> str:
         """Retrieves the wikipedia page name for an input question."""
@@ -47,7 +47,7 @@ class QuizBowlSystem:
         2. Tokenize the question and the passage text to prepare inputs to the Bert-based Answer Extractor
         3. Predict an answer span for each question and return the list of corresponding answer texts."""
         with torch.no_grad():
-            page = self.retrieve_page(question, disable_reranking=False)
+            page = self.retrieve_page(question, disable_reranking=True)
             reference_text = self.wiki_lookup[page]['text']
             answer = self.answer_extractor.extract_answer(question, reference_text)[0] # singleton list
             return answer, page if get_page else answer
