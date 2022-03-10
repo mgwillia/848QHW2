@@ -11,6 +11,9 @@ from transformers import AutoTokenizer, AutoModelForQuestionAnswering, AutoModel
 from transformers import EarlyStoppingCallback, get_cosine_with_hard_restarts_schedule_with_warmup, AdamW, \
     DataCollatorWithPadding
 
+# Change this based on the GPU you use on your machine
+device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+
 def make_dictionary(data: List[Question]):
     data_dict = {"text": [], "page": [], "first_sentence": [], "last_sentence": [], "answer": [], "category": []}
     for question in data:
