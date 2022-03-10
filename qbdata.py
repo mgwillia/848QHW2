@@ -1,6 +1,7 @@
 from typing import List, Dict, Iterable, Optional, Tuple, NamedTuple
 import os
 import json
+import random
 
 GUESSER_TRAIN_FOLD = 'guesstrain'
 BUZZER_TRAIN_FOLD = 'buzztrain'
@@ -155,11 +156,22 @@ class QuizBowlDataset:
 
 
 class WikiLookup:
-    def __init__(self, filepath:str) -> None:
+    def __init__(self, filepath: str) -> None:
         with open(filepath) as fp:
             self.page_lookup = json.load(fp)
-    
+        self.passage_list = list(self.page_lookup.items())
+
     def __getitem__(self, page):
-        """Return the page content as python dict with key `text`. 
+        """Return the page content as python dict with key `text`.
         If the page is not found, it only returns a human readable title of the page."""
         return self.page_lookup.get(page, {'text': page.replace('_', ' ')})
+
+    def get_random_passage_masked(self):
+        raw = random.choice(self.passage_list)
+        title = raw[0].replace("_", " ")
+        text = raw[1]['text']
+        masked_text = text.replace(title, " ")
+        return masked_text
+
+    def get_random_passage_raw(self):
+        return random.choice(self.passage_list)[1]['text']
