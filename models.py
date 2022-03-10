@@ -278,18 +278,20 @@ class ReRanker(BaseReRanker):
         self.tokenizer = None
         self.model = None
 
-    def load(self, model_identifier: str, max_model_length: int = 512):
+    def load(self, model_identifier: str, finetuned: str = "", max_model_length: int = 512):
         self.tokenizer = AutoTokenizer.from_pretrained(model_identifier, model_max_length=max_model_length)
-        self.model = AutoModelForSequenceClassification.from_pretrained(
-            model_identifier, num_labels=2).to(device)
 
-    def train(self):
-        """Fill this method with code that finetunes Sequence Classification task on QuizBowl questions and passages.
-        Feel free to change and modify the signature of the method to suit your needs."""
-        pass
+        if finetuned == "":
+            self.model = AutoModelForSequenceClassification.from_pretrained(
+                model_identifier, num_labels=2).to(device)
+        else:
+            self.model = BertForSequenceClassification.from_pretrained(
+                finetuned, num_labels=2).to(device)
+
 
     def get_best_document(self, question: str, ref_texts: List[str]) -> int:
         """Selects the best reference text from a list of reference text for each question."""
+
 
         with torch.no_grad():
             n_ref_texts = len(ref_texts)
