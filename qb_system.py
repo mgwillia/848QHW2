@@ -21,16 +21,14 @@ class QuizBowlSystem:
         #guesser = Guesser()
         print('Loading the Guesser model...')
         guesser.load('models/tfidf_full.pickle')
-        #guesser.load(something)
+
 
         print('Loding the Wiki Lookups...')
         self.wiki_lookup = WikiLookup('../data/wiki_lookup.2018.json')
 
         reranker = ReRanker()
         print('Loading the Reranker model...')
-        #reranker.load('amberoad/bert-multilingual-passage-reranking-msmarco')
-
-
+        
         path = 'models/reranker-finetuned-full'
         identifier = 'amberoad/bert-multilingual-passage-reranking-msmarco'
         #pass finefuned model path to the reranker
