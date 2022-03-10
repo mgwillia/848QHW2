@@ -123,7 +123,7 @@ if __name__ == "__main__":
     argparser.add_argument("--guesser_model", help="Pickle file path for TfidfGuesser model.",
                            type=str, default="models/tfidf_full.pickle")
     argparser.add_argument("--eval_dataset", help="Dataset Path for the eval dataset. Must be Qanta Json format.",
-                           type=str, default="../data/small.guessdev.json")
+                           type=str, default="data/small.guessdev.json")
 
     argparser.add_argument('--mode', type=str, choices=["predict", "eval"], 
                             help="Only saves the predictions in predict mode. Also computes metrics in eval mode.",

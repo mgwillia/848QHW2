@@ -1,11 +1,7 @@
-from typing import List
+import torch
 from tqdm import tqdm
-from transformers import AutoModelForSequenceClassification
 
 from qbdata import QantaDatabase
-import torch
-import pickle
-from pip import main
 from tfidf_guesser import TfidfGuesser
 from models import AnswerExtractor, Retriever, ReRanker, WikiLookup, Guesser
 
@@ -17,23 +13,20 @@ class QuizBowlSystem:
         Don't have any arguments to this constructor.
         If you really want to have arguments, they should have some default values set.
         """
-        guesser = TfidfGuesser()
-        #guesser = Guesser()
+        #guesser = TfidfGuesser()
+        guesser = Guesser()
         print('Loading the Guesser model...')
-        guesser.load('models/tfidf_full.pickle')
-
+        guesser.load()
+        guesser.build_faiss_index()
 
         print('Loding the Wiki Lookups...')
-        self.wiki_lookup = WikiLookup('../data/wiki_lookup.2018.json')
+        self.wiki_lookup = WikiLookup('data/wiki_lookup.2018.json')
 
-        reranker = ReRanker()
         print('Loading the Reranker model...')
-        
+        reranker = ReRanker()
         path = 'models/reranker-finetuned-full'
         identifier = 'amberoad/bert-multilingual-passage-reranking-msmarco'
-        #pass finefuned model path to the reranker
-        reranker.load(identifier, "")
-
+        reranker.load(identifier, path)
 
         self.retriever = Retriever(guesser, reranker, wiki_lookup=self.wiki_lookup)
 
@@ -41,7 +34,6 @@ class QuizBowlSystem:
         self.answer_extractor = AnswerExtractor()
         print('Loading the Answer Extractor model...')
         self.answer_extractor.load(answer_extractor_base_model, "models/extractor")
-        # self.answer_extractor.load(answer_extractor_base_model)
 
     def retrieve_page(self, question: str, disable_reranking=False) -> str:
         """Retrieves the wikipedia page name for an input question."""
@@ -63,9 +55,7 @@ class QuizBowlSystem:
 
 if __name__ == "__main__":
     qa = QuizBowlSystem()
-    #qanta_db_dev = QantaDatabase('../data/qanta.dev.2018.json')
-
-    qanta_db_dev = QantaDatabase('../data/small.guessdev.json')
+    qanta_db_dev = QantaDatabase('data/qanta.dev.2018.json')
     small_set_questions = qanta_db_dev.all_questions[:10]
 
     for question in tqdm(small_set_questions):
