@@ -11,8 +11,17 @@ from transformers import AutoTokenizer, AutoModelForQuestionAnswering, AutoModel
 from transformers import EarlyStoppingCallback, get_cosine_with_hard_restarts_schedule_with_warmup, AdamW, \
     DataCollatorWithPadding
 
+def make_dictionary(data: List[Question]):
+    data_dict = {"text": [], "page": [], "first_sentence": [], "last_sentence": [], "answer": [], "category": []}
+    for question in data:
+        data_dict["text"].append(question.text)
+        data_dict["page"].append(question.page)
+        data_dict["first_sentence"].append(question.first_sentence)
+        data_dict["last_sentence"].append(question.sentences[-1])
+        data_dict["answer"].append(question.answer)
+        data_dict["category"].append(question.category)
+    return data_dict
 
-device = torch.device("cpu")
 
 def make_dictionary(data: List[Question]):
     data_dict = {"text": [], "page": [], "first_sentence": [], "last_sentence": [], "answer": [], "category": []}
