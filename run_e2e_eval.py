@@ -121,12 +121,13 @@ def compute_metrics(prediction_dict: Mapping, questions: Iterable[Question]):
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser()
     argparser.add_argument("--guesser_model", help="Pickle file path for TfidfGuesser model.",
-                           type=str, default="models/tfidf.pickle")
+                           type=str, default="models/tfidf_full.pickle")
     argparser.add_argument("--eval_dataset", help="Dataset Path for the eval dataset. Must be Qanta Json format.",
-                           type=str, default="data/qanta.dev.2018.json")
+                           type=str, default="../data/small.guessdev.json")
 
     argparser.add_argument('--mode', type=str, choices=["predict", "eval"], 
-                            help="Only saves the predictions in predict mode. Also computes metrics in eval mode.")
+                            help="Only saves the predictions in predict mode. Also computes metrics in eval mode.",
+                           default="eval")
     
     argparser.add_argument("--first_sent_predictions", help="Output path for json predictions.",
                            type=str, default="first_sent_predictions.json")
@@ -153,6 +154,7 @@ if __name__ == "__main__":
 
     # Load the Model
     model = QuizBowlSystem()
+
     
     pred_dict = generate_first_sent_predictions(model, eval_questions)
     

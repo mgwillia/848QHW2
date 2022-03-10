@@ -7,8 +7,8 @@ Original file is located at
     https://colab.research.google.com/drive/1lm9u7dFVMSgt2kquUwGHL1qdS4CVpNC4
 """
 
-!pip install transformers
-!pip install wget
+#!pip install transformers
+#!pip install wget
 
 """QBData class"""
 
@@ -16,6 +16,40 @@ from typing import List, Dict, Iterable, Optional, Tuple, NamedTuple
 import os
 import json
 import random
+
+from typing import List, Union
+#!pip install transformers datasets
+from transformers import DataCollatorWithPadding, BertTokenizer
+import datasets
+import pickle
+from torch.utils.data import DataLoader
+from transformers import AdamW
+from transformers import get_scheduler
+from transformers import TrainingArguments
+from transformers import Trainer
+from tqdm.auto import tqdm
+import torch
+from torch.optim import AdamW, optimizer, lr_scheduler
+from transformers import BertForSequenceClassification, pipeline, BertModel, BertConfig
+from transformers import AutoTokenizer, AutoModelForQuestionAnswering, AutoModelForSequenceClassification
+
+#data_path = "/content/drive/MyDrive/848-hw-main/data"
+#model_path = "/content/drive/MyDrive/848-hw-main/hw2/models"
+#wiki_path = "/content/drive/MyDrive/848-hw-main/data/wiki_lookup.2018.json"
+
+data_path = "../data"
+model_path = "models/reranker-finetuned-full"
+wiki_path = "../data/wiki_lookup.2018.json"
+
+#from google.colab import drive
+#drive.mount('/content/drive')
+
+#qanta_db_train = QantaDatabase(data_path+'/small.guesstrain.json')
+#qanta_db_dev = QantaDatabase(data_path+'/small.guessdev.json')
+
+qanta_db_train = QantaDatabase(data_path+'/qanta.train.2018.json')
+qanta_db_dev = QantaDatabase(data_path+'/qanta.dev.2018.json')
+wiki_data = WikiLookup(wiki_path)
 
 GUESSER_TRAIN_FOLD = 'guesstrain'
 BUZZER_TRAIN_FOLD = 'buzztrain'
@@ -190,43 +224,10 @@ class WikiLookup:
     def get_random_passage_raw(self):
       return random.choice(self.passage_list)[1]['text']
 
-from typing import List, Union
-!pip install transformers datasets
-
-from transformers import DataCollatorWithPadding, BertTokenizer
-import datasets
-import pickle
-from torch.utils.data import DataLoader
-from transformers import AdamW
-from transformers import get_scheduler
-from transformers import TrainingArguments
-from transformers import Trainer
-
-from tqdm.auto import tqdm
-
-import torch
-from torch.optim import AdamW, optimizer, lr_scheduler
-from transformers import BertForSequenceClassification, pipeline, BertModel, BertConfig
-from transformers import AutoTokenizer, AutoModelForQuestionAnswering, AutoModelForSequenceClassification
-
-data_path = "/content/drive/MyDrive/848-hw-main/data"
-model_path = "/content/drive/MyDrive/848-hw-main/hw2/models"
-wiki_path = "/content/drive/MyDrive/848-hw-main/data/wiki_lookup.2018.json"
 
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
-from google.colab import drive
-drive.mount('/content/drive')
 
-from transformers import BertForSequenceClassification, pipeline, BertModel, BertConfig
-from transformers import AutoTokenizer, AutoModelForQuestionAnswering, AutoModelForSequenceClassification
-
-#qanta_db_train = QantaDatabase(data_path+'/small.guesstrain.json')
-#qanta_db_dev = QantaDatabase(data_path+'/small.guessdev.json')
-
-qanta_db_train = QantaDatabase(data_path+'/small.guesstrain.json')
-qanta_db_dev = QantaDatabase(data_path+'/small.guessdev.json')
-wiki_data = WikiLookup(wiki_path)
 
 training_data = qanta_db_train
 validation_data = qanta_db_dev
@@ -249,10 +250,10 @@ labels = [1 if randints[i]<2 else 0 for i in randints]
 
 #print(labels[:5])
 
-#for i in range(5):
-#  print(questions[i])
-#  print(passages[i])
-#  print(labels[i])
+for i in range(5):
+  print(questions[i])
+  print(passages[i])
+  print(labels[i])
 
 #replaced page title in text with space
 #with prob 1/3 take random negative samples from wiki_data
@@ -262,15 +263,15 @@ data_train = datasets.Dataset.from_dict({'questions':questions,  'labels':labels
 
 print(data_train)
 
-questions = [x.text for x in validation_data.guess_train_questions]
-answers = [x.page for x in validation_data.guess_train_questions]
+questions = [x.text for x in validation_data.guess_dev_questions]
+answers = [x.page for x in validation_data.guess_dev_questions]
 randints = [random.randrange(0,3) for i in range(len(answers))] #list of len(answers) random numbers from [0,1,2] 
 print(randints)
 
-passages = [wiki_data[x.page]['text'].replace(x.page.replace('_',' '), ' ') if randints[i]<2 else wiki_data.get_random_passage_masked() for i,x in enumerate(validation_data.guess_train_questions)]
+passages = [wiki_data[x.page]['text'].replace(x.page.replace('_',' '), ' ') if randints[i]<2 else wiki_data.get_random_passage_masked() for i,x in enumerate(validation_data.guess_dev_questions)]
 labels = [1 if randints[i]<2 else 0 for i in randints]
 
-#print(labels[:5])
+print(labels[:5])
 
 #for i in range(5):
 #  print(questions[i])
@@ -319,7 +320,7 @@ for batch in train_dataloader:
 
 outputs = model(**batch)
 print(outputs.loss, outputs.logits.shape)
-!pip install accelerate
+#!pip install accelerate
 
 import torch
 from tqdm.auto import tqdm
@@ -358,12 +359,8 @@ for epoch in range(num_epochs):
         optimizer.zero_grad()
         progress_bar.update(1)
 
-with open(model_path, 'wb') as f:
-    pickle.dump({
-        'reranker-finetuned': model
-    }, f)
+model.save_pretrained(model_path)
 
 
 
-"""Training the BERT based guesser"""
 
