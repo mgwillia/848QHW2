@@ -16,13 +16,16 @@ class GuessTrainDataset(torch.utils.data.Dataset):
             questions = questions[:limit]
             answers = answers[:limit]
 
-        if os.path.isfile(f'data/{dataset_name}_questions.pkl'):
+        if os.path.isfile(f'data/{dataset_name}_questions_old.pkl'):
             print('Loading already-prepared dataset') 
-            with open(f"data/{dataset_name}_questions.pkl", "rb") as fp:
+            #with open(f"data/{dataset_name}_questions.pkl", "rb") as fp:
+            with open(f"data/{dataset_name}_questions_old.pkl", "rb") as fp:
                 self.questions = pickle.load(fp)
-            with open(f"data/{dataset_name}_pages.pkl", "rb") as fp:
+            #with open(f"data/{dataset_name}_pages.pkl", "rb") as fp:
+            with open(f"data/{dataset_name}_pages_old.pkl", "rb") as fp:
                 self.answer_pages = pickle.load(fp)
-            with open(f"data/{dataset_name}_answers.pkl", "rb") as fp:
+            #with open(f"data/{dataset_name}_answers.pkl", "rb") as fp:
+            with open(f"data/{dataset_name}_answers_old.pkl", "rb") as fp:
                 self.answers = pickle.load(fp)
         else:
             self.questions = []
@@ -52,5 +55,6 @@ class GuessTrainDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         out = {'question': self.questions[index][random.randint(0, len(self.questions[index])-1)].squeeze(), 'answer_text': self.answers[index].squeeze(), 'answer_page': self.answer_pages[index]}
+        #out = {'question': self.questions[index].squeeze(), 'answer_text': self.answers[index].squeeze(), 'answer_page': self.answer_pages[index]}
 
         return out

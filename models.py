@@ -76,8 +76,8 @@ class Guesser(BaseGuesser):
     def load(self, from_checkpoint=True):
         self.tokenizer = BertTokenizerFast.from_pretrained("bert-base-uncased")
         self.wiki_lookup = WikiLookup('data/wiki_lookup.2018.json')
-        question_encoder_path = 'models/guesser_question_encoder_5.pth.tar'
-        context_encoder_path = 'models/guesser_context_encoder_5.pth.tar'
+        question_encoder_path = 'models/guesser_question_encoder_new_0.pth.tar'
+        context_encoder_path = 'models/guesser_context_encoder_new_0.pth.tar'
 
         self.question_model = DPRQuestionEncoder.from_pretrained("facebook/dpr-question_encoder-single-nq-base").to(device)
         self.context_model = DPRContextEncoder.from_pretrained("facebook/dpr-ctx_encoder-single-nq-base").to(device)
@@ -166,10 +166,10 @@ class Guesser(BaseGuesser):
                     losses = []
                     correct_preds_total = []
 
-            torch.save(self.question_model, f'models/guesser_question_encoder_new_{epoch_num}.pth.tar')
-            torch.save(self.context_model, f'models/guesser_context_encoder_new_{epoch_num}.pth.tar')
-        torch.save(self.question_model, f'models/guesser_question_encoder_new.pth.tar')
-        torch.save(self.context_model, f'models/guesser_context_encoder_new.pth.tar')
+            torch.save(self.question_model, f'models/guesser_question_encoder_{epoch_num}.pth.tar')
+            torch.save(self.context_model, f'models/guesser_context_encoder_{epoch_num}.pth.tar')
+        torch.save(self.question_model, f'models/guesser_question_encoder.pth.tar')
+        torch.save(self.context_model, f'models/guesser_context_encoder.pth.tar')
 
     def train(self, training_data: QantaDatabase, limit: int=-1):
         print('Running Guesser.train()', flush=True)
@@ -392,17 +392,18 @@ class Retriever:
      - Guesser that fetches top K documents for an input question, and
      - ReRanker that then reranks these top K documents by comparing each of them with the question to produce a similarity score."""
 
-    def __init__(self, guesser: BaseGuesser, reranker: BaseReRanker, wiki_lookup: Union[str, WikiLookup],
+    def __init__(self, guesser: BaseGuesser, first_sent_reranker: BaseReRanker, last_sent_reranker: BaseReRanker, wiki_lookup: Union[str, WikiLookup],
                  max_n_guesses=10) -> None:
         if isinstance(wiki_lookup, str):
             self.wiki_lookup = WikiLookup(wiki_lookup)
         else:
             self.wiki_lookup = wiki_lookup
         self.guesser = guesser
-        self.reranker = reranker
+        self.first_sent_reranker = first_sent_reranker
+        self.last_sent_reranker = last_sent_reranker
         self.max_n_guesses = max_n_guesses
 
-    def retrieve_answer_document(self, question: str, disable_reranking=False) -> str:
+    def retrieve_answer_document(self, question: str, disable_reranking=False, is_first_sent=False) -> str:
         """Returns the best guessed page that contains the answer to the question."""
         guesses = self.guesser.guess([question], max_n_guesses=self.max_n_guesses)[0]
 
@@ -411,11 +412,14 @@ class Retriever:
             return best_page
 
         ref_texts = []
-        for page, score in guesses:
+        for page, _ in guesses:
             doc = self.wiki_lookup[page]['text']
             ref_texts.append(doc)
 
-        best_doc_id = self.reranker.get_best_document(question, ref_texts)
+        if is_first_sent:
+            best_doc_id = self.first_sent_reranker.get_best_document(question, ref_texts)
+        else:
+            best_doc_id = self.last_sent_reranker.get_best_document(question, ref_texts)
         return guesses[best_doc_id][0]
 
 

@@ -17,4 +17,4 @@ srun bash -c "hostname;"
 
 #srun bash -c "python models.py --train_guesser;"
 srun bash -c "python run_e2e_eval.py --mode eval --debug_run --first_sent_predictions first_sent_predictions_dev.json --last_sent_predictions last_sent_predictions_dev.json;"
-#srun bash -c "python run_e2e_eval.py --mode predict --eval_dataset data/qanta.hw2.test.json;"
+#srun bash -c "python run_e2e_eval.py --mode eval --first_sent_predictions first_sent_predictions_dev.json --last_sent_predictions last_sent_predictions_dev.json;"

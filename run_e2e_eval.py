@@ -51,7 +51,7 @@ def generate_answers(answer_text:str):
 def generate_first_sent_predictions(model: QuizBowlSystem, questions:Iterable[Question]):
     pred_dict = {}
     for ques in tqdm(questions):
-        answer_pred, page_pred = model.execute_query(ques.first_sentence, get_page=True)
+        answer_pred, page_pred = model.execute_query(ques.first_sentence, get_page=True, is_first_sent=True)
         pred_dict[ques.qanta_id] = {
             'answer': answer_pred,
             'page': page_pred
@@ -62,7 +62,7 @@ def generate_first_sent_predictions(model: QuizBowlSystem, questions:Iterable[Qu
 def generate_last_sent_predictions(model: QuizBowlSystem, questions:Iterable[Question]):
     pred_dict = {}
     for ques in tqdm(questions):
-        answer_pred, page_pred = model.execute_query(ques.sentences[-1], get_page=True)
+        answer_pred, page_pred = model.execute_query(ques.sentences[-1], get_page=True, is_first_sent=False)
         pred_dict[ques.qanta_id] = {
             'answer': answer_pred,
             'page': page_pred
