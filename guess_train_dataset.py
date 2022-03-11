@@ -9,7 +9,7 @@ class GuessTrainDataset(torch.utils.data.Dataset):
     def __init__(self, data: QantaDatabase, tokenizer, wiki_lookup, dataset_name, limit: int=-1):
         super(GuessTrainDataset, self).__init__()
 
-        questions = [x.sentences for x in data.guess_train_questions]
+        questions = [x.text for x in data.guess_train_questions]
         answers = [x.page for x in data.guess_train_questions]
 
         if limit > 0:
@@ -30,14 +30,10 @@ class GuessTrainDataset(torch.utils.data.Dataset):
             self.answers = []
             print(f'Preparing dataset with {len(questions)} entries')
             for i, (question, page) in enumerate(zip(questions, answers)):
-                question_toks = []
-                for question_sentence in question:
-                    question_toks.append(tokenizer(question_sentence, return_tensors="pt", max_length=512, truncation=True, padding='max_length')["input_ids"])
-                answer_tok = tokenizer(wiki_lookup[page]['text'], return_tensors="pt", max_length=512, truncation=True, padding='max_length')["input_ids"]
-                #print(question_toks[0].shape)
-                #print(answer_tok.shape)
+                question_tok = tokenizer(question, return_tensors="pt", max_length=512, truncation=True, padding='max_length')["input_ids"]
+                answer_tok = tokenizer(wiki_lookup[page]['text'].replace(page.replace('_',' '), ' '), return_tensors="pt", max_length=512, truncation=True, padding='max_length')["input_ids"]
 
-                self.questions.append(question_toks)
+                self.questions.append(question_tok)
                 self.answer_pages.append(page)
                 self.answers.append(answer_tok)
 

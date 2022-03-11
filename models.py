@@ -76,13 +76,19 @@ class Guesser(BaseGuesser):
     def load(self, from_checkpoint=True):
         self.tokenizer = BertTokenizerFast.from_pretrained("bert-base-uncased")
         self.wiki_lookup = WikiLookup('data/wiki_lookup.2018.json')
+        question_encoder_path = 'models/guesser_question_encoder_5.pth.tar'
+        context_encoder_path = 'models/guesser_context_encoder_5.pth.tar'
 
         self.question_model = DPRQuestionEncoder.from_pretrained("facebook/dpr-question_encoder-single-nq-base").to(device)
         self.context_model = DPRContextEncoder.from_pretrained("facebook/dpr-ctx_encoder-single-nq-base").to(device)
-        if os.path.isfile('models/guesser_question_encoder_4.pth.tar') and from_checkpoint:
-            self.question_model = torch.load('models/guesser_question_encoder_4.pth.tar', map_location=device)
-        if os.path.isfile('models/guesser_context_encoder_4.pth.tar') and from_checkpoint:
-            self.context_model = torch.load('models/guesser_context_encoder_4.pth.tar', map_location=device)
+        if os.path.isfile(question_encoder_path) and from_checkpoint:
+            print(f'loading question model from checkpoint {question_encoder_path}')
+            self.question_model = torch.load(question_encoder_path, map_location=device)
+        if os.path.isfile(context_encoder_path) and from_checkpoint:
+            print(f'loading context model from checkpoint {context_encoder_path}')
+            self.context_model = torch.load(context_encoder_path, map_location=device)
+    
+        self.train_pages = [x.page for x in QantaDatabase('data/qanta.train.2018.json').guess_train_questions]
 
     def get_guesser_scheduler(self, optimizer, warmup_steps, total_training_steps, steps_shift=0, last_epoch=-1):
 
@@ -101,19 +107,15 @@ class Guesser(BaseGuesser):
 
         return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda, last_epoch)
 
-    def finetune(self, training_data: QantaDatabase, dev_data: QantaDatabase, limit: int=-1):
-        NUM_EPOCHS = 10 ### NOTE: this is for small datasets, maybe 40 for larger ones?
+    def finetune(self, training_data: QantaDatabase, limit: int=-1):
+        NUM_EPOCHS = 10
         BASE_BATCH_SIZE = 128
-        BATCH_SIZE = 4
+        BATCH_SIZE = 128
         LR_SCALE_FACTOR = BATCH_SIZE / BASE_BATCH_SIZE
-
-        self.load()
 
         ### FIRST, PREP THE DATA ###
         train_dataset = GuessTrainDataset(training_data, self.tokenizer, self.wiki_lookup, 'train')
         train_dataloader = torch.utils.data.DataLoader(train_dataset, num_workers=4, batch_size=BATCH_SIZE, pin_memory=True, drop_last=True, shuffle=True)
-        dev_dataset = GuessTrainDataset(dev_data, self.tokenizer, self.wiki_lookup, 'dev')
-        dev_dataloader = torch.utils.data.DataLoader(dev_dataset, num_workers=4, batch_size=BATCH_SIZE*2, pin_memory=True, drop_last=False, shuffle=False)
 
         ### THEN, TRAIN THE ENCODERS ###
         question_optim = torch.optim.Adam(self.question_model.parameters(), lr=1e-5*LR_SCALE_FACTOR, betas=(0.9, 0.999), eps=1e-08, weight_decay=0.0, amsgrad=False)
@@ -125,13 +127,28 @@ class Guesser(BaseGuesser):
         print('Ready to finetune', flush=True)
         self.question_model.train()
         self.context_model.train()
+        for name, param in self.question_model.named_parameters():
+            if 'layer' in name:
+                layer_num = int(name.split('.')[4])
+                if layer_num < 11:
+                    param.requires_grad = False
+            else:
+                param.requires_grad = False
+        for name, param in self.context_model.named_parameters():
+            if 'layer' in name:
+                layer_num = int(name.split('.')[4])
+                if layer_num < 11:
+                    param.requires_grad = False
+            else:
+                param.requires_grad = False
         losses = []
+        correct_preds_total = []
         for epoch_num in range(NUM_EPOCHS):
             for batch_num, batch in enumerate(train_dataloader):
                 questions, answers = batch['question'].to(device), batch['answer_text'].to(device)
                 question_embeddings = self.question_model(questions).pooler_output
                 context_embeddings = self.context_model(answers).pooler_output
-                batch_loss, _ = loss_fn(question_embeddings, context_embeddings, list(range(question_embeddings.shape[0])))
+                batch_loss, correct_preds = loss_fn(question_embeddings, context_embeddings, list(range(question_embeddings.shape[0])))
 
                 question_optim.zero_grad()
                 context_optim.zero_grad()
@@ -142,29 +159,32 @@ class Guesser(BaseGuesser):
                 context_scheduler.step()
 
                 losses.append(batch_loss.item())
+                correct_preds_total.append(correct_preds.item())
 
-                if batch_num % 250 == 249:
-                    print(f'Epoch Num: {epoch_num}, Batch Num: {batch_num}, Loss: {np.array(losses).mean()}', flush=True)
+                if batch_num % 8 == 7:
+                    print(f'Epoch Num: {epoch_num}, Batch Num: {batch_num}, Loss: {np.array(losses).mean()}, Correct preds per batch: {np.array(correct_preds_total).mean()}', flush=True)
                     losses = []
+                    correct_preds_total = []
 
-            torch.save(self.question_model, f'models/guesser_question_encoder_{epoch_num}.pth.tar')
-            torch.save(self.context_model, f'models/guesser_context_encoder_{epoch_num}.pth.tar')
-        torch.save(self.question_model, f'models/guesser_question_encoder.pth.tar')
-        torch.save(self.context_model, f'models/guesser_context_encoder.pth.tar')
+            torch.save(self.question_model, f'models/guesser_question_encoder_new_{epoch_num}.pth.tar')
+            torch.save(self.context_model, f'models/guesser_context_encoder_new_{epoch_num}.pth.tar')
+        torch.save(self.question_model, f'models/guesser_question_encoder_new.pth.tar')
+        torch.save(self.context_model, f'models/guesser_context_encoder_new.pth.tar')
 
     def train(self, training_data: QantaDatabase, limit: int=-1):
-        print('Computing context embeddings for Guesser', flush=True)
+        print('Running Guesser.train()', flush=True)
         ### GET TRAIN EMBEDDINGS ###
         BATCH_SIZE = 256
         DIMENSION = 768 ### TODO: double check embed length
 
-
         train_dataset = GuessTrainDataset(training_data, self.tokenizer, self.wiki_lookup, 'train')
         train_dataloader = torch.utils.data.DataLoader(train_dataset, num_workers=4, batch_size=BATCH_SIZE, pin_memory=True, drop_last=False, shuffle=False)
 
-        self.question_model.eval()
+        for parameter in self.context_model.parameters():
+            parameter.requires_grad = False
         self.context_model.eval()
         context_embeddings = torch.zeros((len(train_dataset), DIMENSION))
+        print('Computing context embeddings for Guesser', flush=True)
         with torch.no_grad():
             for i, batch in enumerate(train_dataloader):
                 answers = batch['answer_text'].to(device)
@@ -174,11 +194,8 @@ class Guesser(BaseGuesser):
     def build_faiss_index(self):
         DIMENSION = 768 ### TODO: double check embed length
         context_embeddings = torch.load('models/context_embeddings.pth.tar').numpy()
-        print(f'Confirm the context embedding dim is {DIMENSION} for faiss: {context_embeddings.shape}', flush=True)
         self.index = faiss.IndexFlatL2(DIMENSION)
-        print(self.index.is_trained)
         self.index.add(context_embeddings)
-        print(self.index.ntotal)
 
     def guess(self, questions: List[str], max_n_guesses: Optional[int]) -> List[List[Tuple[str, float]]]:
         """
@@ -194,12 +211,12 @@ class Guesser(BaseGuesser):
             for i, question in enumerate(questions):
                 question_embeddings[i] = self.question_model(self.tokenizer(question, return_tensors="pt", max_length=512, truncation=True, padding='max_length')["input_ids"].to(device)).pooler_output
 
-        neighbor_scores, neighbor_indices = self.index.search(question_embeddings, max_n_guesses)
+        neighbor_scores, neighbor_indices = self.index.search(question_embeddings.numpy(), max_n_guesses)
         guesses = []
         for i in range(len(questions)):
             guess = []
             for j in range(max_n_guesses):
-                guess.append((neighbor_indices[i][j], neighbor_scores[i][j]))
+                guess.append((self.train_pages[neighbor_indices[i][j]], neighbor_scores[i][j]))
             guesses.append(guess)
         return guesses
 
@@ -214,7 +231,7 @@ class Guesser(BaseGuesser):
         :param limit: How many evaluation questions to use
         """
 
-        questions = [x.text for x in evaluation_data.guess_dev_questions]
+        questions = [x.sentences[-1] for x in evaluation_data.guess_dev_questions]
         answers = [x.page for x in evaluation_data.guess_dev_questions]
 
         if limit > 0:
@@ -225,7 +242,8 @@ class Guesser(BaseGuesser):
             
         d = defaultdict(dict)
         data_index = 0
-        guesses = [x[0][0] for x in self.guess(questions, max_n_guesses=1)]
+        raw_guesses = self.guess(questions, max_n_guesses=5)
+        guesses = [x[0][0] for x in raw_guesses]
         for gg, yy in zip(guesses, answers):
             d[yy][gg] = d[yy].get(gg, 0) + 1
             data_index += 1
@@ -254,12 +272,15 @@ class ReRanker(BaseReRanker):
             self.model = BertForSequenceClassification.from_pretrained(
                 finetuned, num_labels=2).to(device)
 
-    def get_prepped_reranker_dataset_split(self, guess_questions, wiki_data):
+    def get_prepped_reranker_dataset_split(self, guess_questions, wiki_data, first_sent=True):
         train_questions = []
         train_passages = []
         train_labels = []
         for guess_question in guess_questions:
-            train_questions.append(guess_question.text)
+            if first_sent:
+                train_questions.append(guess_question.sentences[0])
+            else:
+                train_questions.append(guess_question.sentences[-1])
             if random.randrange(0,3) < 2:
                 train_passages.append(wiki_data[guess_question.page]['text'].replace(guess_question.page.replace('_',' '), ' '))
                 train_labels.append(1)
@@ -269,19 +290,22 @@ class ReRanker(BaseReRanker):
 
         return datasets.Dataset.from_dict({'questions':train_questions, 'labels':train_labels, 'content':train_passages})
 
-    def get_prepped_reranker_data(self):
+    def get_prepped_reranker_data(self, first_sent=True):
         qanta_db_train = QantaDatabase('data/qanta.train.2018.json')
         qanta_db_dev = QantaDatabase('data/qanta.dev.2018.json')
         wiki_data = WikiLookup('data/wiki_lookup.2018.json')
 
-        data_train = self.get_prepped_reranker_dataset_split(qanta_db_train.guess_train_questions, wiki_data)
-        data_dev = self.get_prepped_reranker_dataset_split(qanta_db_dev.guess_dev_questions, wiki_data)
+        data_train = self.get_prepped_reranker_dataset_split(qanta_db_train.guess_train_questions, wiki_data, first_sent)
+        data_dev = self.get_prepped_reranker_dataset_split(qanta_db_dev.guess_dev_questions, wiki_data, first_sent)
         data = datasets.DatasetDict({'train': data_train, 'validation': data_dev})
         return data
 
-    def train(self):
+    def train(self, first_sent=True):
         NUM_EPOCHS = 10
-        MODEL_PATH = "models/reranker-finetuned-full"
+        if first_sent:
+            MODEL_PATH = "models/reranker-first_sent-finetuned-full"
+        else:
+            MODEL_PATH = "models/reranker-last_sent-finetuned-full"
 
 
         ### PREP MODEL ###
@@ -295,7 +319,7 @@ class ReRanker(BaseReRanker):
         def preprocess_function(data):
             return tokenizer(data["questions"], data["content"], truncation=True)
 
-        prepped_reranker_data = self.get_prepped_reranker_data()
+        prepped_reranker_data = self.get_prepped_reranker_data(first_sent)
         tokenized_dataset = prepped_reranker_data.map(preprocess_function, batched=True)
 
         try:
@@ -428,7 +452,7 @@ class AnswerExtractor:
             self.model = AutoModelForQuestionAnswering.from_pretrained(
                 model_identifier).to(device)
         else:
-            self.model = AutoModelForQuestionAnswering.from_pretrained(saved_model_path).to(device)
+            self.model = AutoModelForQuestionAnswering.from_pretrained(saved_model_path, local_files_only=True).to(device)
 
     def gen_train_data(self, data):
         pages = data['page']
@@ -643,6 +667,7 @@ if __name__ == "__main__":
     parser.add_argument("--train_guesser", action="store_true")
     parser.add_argument("--train_extractor", action="store_true")
     parser.add_argument("--train_reranker", action="store_true")
+    parser.add_argument("--reranker_first_sent", action="store_true")
 
     flags = parser.parse_args()
     
@@ -652,11 +677,10 @@ if __name__ == "__main__":
         guessdev = QantaDatabase(flags.dev_data)
 
         guesser = Guesser()
-        guesser.load(from_checkpoint=True)
-        #guesser.finetune(guesstrain, guessdev, limit=flags.limit)
+        guesser.load(from_checkpoint=False)
+        guesser.finetune(guesstrain, limit=flags.limit)
         guesser.train(guesstrain)
         guesser.build_faiss_index()
-
 
         if flags.show_confusion_matrix:
             confusion = guesser.confusion_matrix(guessdev, limit=-1)
@@ -674,7 +698,7 @@ if __name__ == "__main__":
     elif flags.train_reranker:
         reranker = ReRanker()
         reranker.load('amberoad/bert-multilingual-passage-reranking-msmarco')
-        reranker.train()
+        reranker.train(flags.reranker_first_sent)
 
     else:
         print('Why did you not give me anything to train?')

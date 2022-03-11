@@ -3,11 +3,11 @@
 #SBATCH --job-name=matt_job_guess
 #SBATCH --output=logs/matt_job_guess.out.%j
 #SBATCH --error=logs/matt_job_guess.out.%j
-#SBATCH --time=36:00:00
+#SBATCH --time=72:00:00
 #SBATCH --account=abhinav
 #SBATCH --partition=dpart
-#SBATCH --qos=high
-#SBATCH --gres=gpu:gtx1080ti:1
+#SBATCH --qos=medium
+#SBATCH --gres=gpu:p6000:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=32G
 

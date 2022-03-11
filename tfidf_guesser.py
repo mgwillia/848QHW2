@@ -93,7 +93,9 @@ class TfidfGuesser(BaseGuesser):
             
         d = defaultdict(dict)
         data_index = 0
-        guesses = [x[0][0] for x in self.guess(questions, max_n_guesses=1)]
+        raw_guesses = self.guess(questions, max_n_guesses=1)
+        print(raw_guesses)
+        guesses = [x[0][0] for x in raw_guesses]
         for gg, yy in zip(guesses, answers):
             d[yy][gg] = d[yy].get(gg, 0) + 1
             data_index += 1

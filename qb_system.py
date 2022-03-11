@@ -13,18 +13,19 @@ class QuizBowlSystem:
         Don't have any arguments to this constructor.
         If you really want to have arguments, they should have some default values set.
         """
-        #guesser = TfidfGuesser()
-        guesser = Guesser()
+        guesser = TfidfGuesser()
+        #guesser = Guesser()
         print('Loading the Guesser model...')
-        guesser.load()
-        guesser.build_faiss_index()
+        guesser.load('models/tfidf_full.pickle')
+        #guesser.load()
+        #guesser.build_faiss_index()
 
         print('Loding the Wiki Lookups...')
         self.wiki_lookup = WikiLookup('data/wiki_lookup.2018.json')
 
         print('Loading the Reranker model...')
         reranker = ReRanker()
-        path = 'models/reranker-finetuned-small_2'
+        path = 'models/reranker-finetuned-full_1'
         identifier = 'amberoad/bert-multilingual-passage-reranking-msmarco'
         reranker.load(identifier, path)
 
@@ -33,7 +34,7 @@ class QuizBowlSystem:
         answer_extractor_base_model = "csarron/bert-base-uncased-squad-v1"
         self.answer_extractor = AnswerExtractor()
         print('Loading the Answer Extractor model...')
-        self.answer_extractor.load(answer_extractor_base_model, "models/extractor/checkpoint-225856")
+        self.answer_extractor.load(answer_extractor_base_model, "models/extractor")
 
     def retrieve_page(self, question: str, disable_reranking=False) -> str:
         """Retrieves the wikipedia page name for an input question."""
@@ -47,7 +48,7 @@ class QuizBowlSystem:
         2. Tokenize the question and the passage text to prepare inputs to the Bert-based Answer Extractor
         3. Predict an answer span for each question and return the list of corresponding answer texts."""
         with torch.no_grad():
-            page = self.retrieve_page(question, disable_reranking=True)
+            page = self.retrieve_page(question, disable_reranking=False)
             reference_text = self.wiki_lookup[page]['text']
             answer = self.answer_extractor.extract_answer(question, reference_text)[0] # singleton list
             return answer, page if get_page else answer
