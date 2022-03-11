@@ -11,9 +11,6 @@ from base_models import BaseGuesser
 
 from qbdata import QantaDatabase
 
-BUZZ_NUM_GUESSES = 10
-BUZZ_THRESHOLD = 0.3
-
 class TfidfGuesser(BaseGuesser):
     """
     Class that, given a query, finds the most similar question to it.
@@ -96,7 +93,9 @@ class TfidfGuesser(BaseGuesser):
             
         d = defaultdict(dict)
         data_index = 0
-        guesses = [x[0][0] for x in self.guess(questions, max_n_guesses=1)]
+        raw_guesses = self.guess(questions, max_n_guesses=1)
+        print(raw_guesses)
+        guesses = [x[0][0] for x in raw_guesses]
         for gg, yy in zip(guesses, answers):
             d[yy][gg] = d[yy].get(gg, 0) + 1
             data_index += 1
@@ -128,17 +127,11 @@ class TfidfGuesser(BaseGuesser):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--guesstrain", default="data/small.guesstrain.json", type=str)
-    parser.add_argument("--guessdev", default="data/small.guessdev.json", type=str)
-    parser.add_argument("--buzztrain", default="data/small.buzztrain.json", type=str)
-    parser.add_argument("--buzzdev", default="data/small.buzzdev.json", type=str)
+    parser.add_argument("--guesstrain", default="data/qanta.train.2018.json", type=str)
+    parser.add_argument("--guessdev", default="data/qanta.dev.2018.json", type=str)
     parser.add_argument("--limit", default=-1, type=int)
-    parser.add_argument("--num_guesses", default=5, type=int)
-    parser.add_argument("--vocab", default="models/guess.vocab", type=str)
     parser.add_argument("--model_path", default="models/tfidf_full.pickle", type=str)
-    parser.add_argument("--buzztrain_predictions", default="data/small_guess.buzztrain.jsonl", type=str)
-    parser.add_argument("--buzzdev_predictions", default="data/small_guess.buzzdev.jsonl", type=str)
-    parser.add_argument("--show_confusion_matrix", default=False, type=bool)
+    parser.add_argument("--show_confusion_matrix", default=True, type=bool)
 
     flags = parser.parse_args()
 

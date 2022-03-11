@@ -2,6 +2,7 @@ outputs/
 models/
 data/
 logs
+__pycache__/
+env/
 .idea
 .DS_STORE
-__pycache__
