@@ -110,7 +110,7 @@ class Guesser(BaseGuesser):
     def finetune(self, training_data: QantaDatabase, limit: int=-1):
         NUM_EPOCHS = 10
         BASE_BATCH_SIZE = 128
-        BATCH_SIZE = 128
+        BATCH_SIZE = 64
         LR_SCALE_FACTOR = BATCH_SIZE / BASE_BATCH_SIZE
 
         ### FIRST, PREP THE DATA ###
@@ -130,14 +130,14 @@ class Guesser(BaseGuesser):
         for name, param in self.question_model.named_parameters():
             if 'layer' in name:
                 layer_num = int(name.split('.')[4])
-                if layer_num < 11:
+                if layer_num < 10:
                     param.requires_grad = False
             else:
                 param.requires_grad = False
         for name, param in self.context_model.named_parameters():
             if 'layer' in name:
                 layer_num = int(name.split('.')[4])
-                if layer_num < 11:
+                if layer_num < 10:
                     param.requires_grad = False
             else:
                 param.requires_grad = False
