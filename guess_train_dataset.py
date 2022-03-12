@@ -6,28 +6,33 @@ from qbdata import QantaDatabase
 
 
 class GuessTrainDataset(torch.utils.data.Dataset):
-    def __init__(self, data: QantaDatabase, tokenizer, wiki_lookup, dataset_name, limit: int=-1):
+    def __init__(self, data: QantaDatabase, tokenizer, wiki_lookup, dataset_name, sentence_splitting: bool = True):
         super(GuessTrainDataset, self).__init__()
+        self.sentence_splitting = sentence_splitting
 
         questions = [x.text for x in data.guess_train_questions]
         answers = [x.page for x in data.guess_train_questions]
 
-        if limit > 0:
-            questions = questions[:limit]
-            answers = answers[:limit]
-
-        if os.path.isfile(f'data/{dataset_name}_questions_old.pkl'):
-            print('Loading already-prepared dataset') 
-            #with open(f"data/{dataset_name}_questions.pkl", "rb") as fp:
-            with open(f"data/{dataset_name}_questions_old.pkl", "rb") as fp:
-                self.questions = pickle.load(fp)
-            #with open(f"data/{dataset_name}_pages.pkl", "rb") as fp:
-            with open(f"data/{dataset_name}_pages_old.pkl", "rb") as fp:
-                self.answer_pages = pickle.load(fp)
-            #with open(f"data/{dataset_name}_answers.pkl", "rb") as fp:
-            with open(f"data/{dataset_name}_answers_old.pkl", "rb") as fp:
-                self.answers = pickle.load(fp)
+        if self.sentence_splitting:
+            if os.path.isfile(f'data/{dataset_name}_questions_old.pkl'):
+                print('Loading already-prepared dataset') 
+                with open(f"data/{dataset_name}_questions_old.pkl", "rb") as fp:
+                    self.questions = pickle.load(fp)
+                with open(f"data/{dataset_name}_pages_old.pkl", "rb") as fp:
+                    self.answer_pages = pickle.load(fp)
+                with open(f"data/{dataset_name}_answers_old.pkl", "rb") as fp:
+                    self.answers = pickle.load(fp)
+            else:
+                print("GRAVE ERROR: COULD NOT FIND TOKENIZED DATA")
         else:
+            if os.path.isfile(f'data/{dataset_name}_questions.pkl'):
+                print('Loading already-prepared dataset') 
+                with open(f"data/{dataset_name}_questions.pkl", "rb") as fp:
+                    self.questions = pickle.load(fp)
+                with open(f"data/{dataset_name}_pages.pkl", "rb") as fp:
+                    self.answer_pages = pickle.load(fp)
+                with open(f"data/{dataset_name}_answers.pkl", "rb") as fp:
+                    self.answers = pickle.load(fp)
             self.questions = []
             self.answer_pages = []
             self.answers = []
@@ -54,7 +59,8 @@ class GuessTrainDataset(torch.utils.data.Dataset):
         return len(self.questions)
 
     def __getitem__(self, index):
-        out = {'question': self.questions[index][random.randint(0, len(self.questions[index])-1)].squeeze(), 'answer_text': self.answers[index].squeeze(), 'answer_page': self.answer_pages[index]}
-        #out = {'question': self.questions[index].squeeze(), 'answer_text': self.answers[index].squeeze(), 'answer_page': self.answer_pages[index]}
-
+        if self.sentence_splitting:
+            out = {'question': self.questions[index][random.randint(0, len(self.questions[index])-1)].squeeze(), 'answer_text': self.answers[index].squeeze(), 'answer_page': self.answer_pages[index]}
+        else:
+            out = {'question': self.questions[index].squeeze(), 'answer_text': self.answers[index].squeeze(), 'answer_page': self.answer_pages[index]}
         return out

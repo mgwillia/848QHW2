@@ -73,11 +73,9 @@ class Guesser(BaseGuesser):
         self.wiki_lookup = None
         self.index = None
 
-    def load(self, from_checkpoint=True):
+    def load(self, from_checkpoint=True, question_encoder_path = 'models/guesser_question_encoder_7.pth.tar', context_encoder_path = 'models/guesser_context_encoder_7.pth.tar'):
         self.tokenizer = BertTokenizerFast.from_pretrained("bert-base-uncased")
         self.wiki_lookup = WikiLookup('data/wiki_lookup.2018.json')
-        question_encoder_path = 'models/guesser_question_encoder_new_0.pth.tar'
-        context_encoder_path = 'models/guesser_context_encoder_new_0.pth.tar'
 
         self.question_model = DPRQuestionEncoder.from_pretrained("facebook/dpr-question_encoder-single-nq-base").to(device)
         self.context_model = DPRContextEncoder.from_pretrained("facebook/dpr-ctx_encoder-single-nq-base").to(device)
@@ -108,9 +106,9 @@ class Guesser(BaseGuesser):
         return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda, last_epoch)
 
     def finetune(self, training_data: QantaDatabase, limit: int=-1):
-        NUM_EPOCHS = 10
+        NUM_EPOCHS = 30
         BASE_BATCH_SIZE = 128
-        BATCH_SIZE = 64
+        BATCH_SIZE = 8
         LR_SCALE_FACTOR = BATCH_SIZE / BASE_BATCH_SIZE
 
         ### FIRST, PREP THE DATA ###
@@ -130,20 +128,24 @@ class Guesser(BaseGuesser):
         for name, param in self.question_model.named_parameters():
             if 'layer' in name:
                 layer_num = int(name.split('.')[4])
-                if layer_num < 10:
-                    param.requires_grad = False
+                if layer_num < 11:
+                    #param.requires_grad = False
+                    pass
             else:
-                param.requires_grad = False
+                #param.requires_grad = False
+                pass
         for name, param in self.context_model.named_parameters():
             if 'layer' in name:
                 layer_num = int(name.split('.')[4])
-                if layer_num < 10:
-                    param.requires_grad = False
+                if layer_num < 11:
+                    #param.requires_grad = False
+                    pass
             else:
-                param.requires_grad = False
+                #param.requires_grad = False
+                pass
         losses = []
         correct_preds_total = []
-        for epoch_num in range(NUM_EPOCHS):
+        for epoch_num in range(10, 10+NUM_EPOCHS):
             for batch_num, batch in enumerate(train_dataloader):
                 questions, answers = batch['question'].to(device), batch['answer_text'].to(device)
                 question_embeddings = self.question_model(questions).pooler_output
@@ -166,18 +168,18 @@ class Guesser(BaseGuesser):
                     losses = []
                     correct_preds_total = []
 
-            torch.save(self.question_model, f'models/guesser_question_encoder_{epoch_num}.pth.tar')
-            torch.save(self.context_model, f'models/guesser_context_encoder_{epoch_num}.pth.tar')
-        torch.save(self.question_model, f'models/guesser_question_encoder.pth.tar')
-        torch.save(self.context_model, f'models/guesser_context_encoder.pth.tar')
+            torch.save(self.question_model, f'models/guesser_question_encoder_{epoch_num}_unfreeze.pth.tar')
+            torch.save(self.context_model, f'models/guesser_context_encoder_{epoch_num}_unfreeze.pth.tar')
+        torch.save(self.question_model, f'models/guesser_question_encoder_unfreeze.pth.tar')
+        torch.save(self.context_model, f'models/guesser_context_encoder_unfreeze.pth.tar')
 
-    def train(self, training_data: QantaDatabase, limit: int=-1):
+    def train(self, training_data: QantaDatabase, embeddings_save_path='models/context_embeddings.pth.tar', sentence_splitting: bool = False):
         print('Running Guesser.train()', flush=True)
         ### GET TRAIN EMBEDDINGS ###
         BATCH_SIZE = 256
-        DIMENSION = 768 ### TODO: double check embed length
+        DIMENSION = 768
 
-        train_dataset = GuessTrainDataset(training_data, self.tokenizer, self.wiki_lookup, 'train')
+        train_dataset = GuessTrainDataset(training_data, self.tokenizer, self.wiki_lookup, 'train', sentence_splitting)
         train_dataloader = torch.utils.data.DataLoader(train_dataset, num_workers=4, batch_size=BATCH_SIZE, pin_memory=True, drop_last=False, shuffle=False)
 
         for parameter in self.context_model.parameters():
@@ -189,12 +191,12 @@ class Guesser(BaseGuesser):
             for i, batch in enumerate(train_dataloader):
                 answers = batch['answer_text'].to(device)
                 context_embeddings[i*BATCH_SIZE:min(len(train_dataset), (i+1)*BATCH_SIZE)] = self.context_model(answers).pooler_output
-        torch.save(context_embeddings, 'models/context_embeddings.pth.tar')
+        torch.save(context_embeddings, embeddings_save_path)
 
-    def build_faiss_index(self):
-        DIMENSION = 768 ### TODO: double check embed length
-        context_embeddings = torch.load('models/context_embeddings.pth.tar').numpy()
-        self.index = faiss.IndexFlatL2(DIMENSION)
+    def build_faiss_index(self, embeddings_load_path='models/context_embeddings.pth.tar'):
+        DIMENSION = 768
+        context_embeddings = torch.load(embeddings_load_path).numpy()
+        self.index = faiss.IndexFlatIP(DIMENSION)
         self.index.add(context_embeddings)
 
     def guess(self, questions: List[str], max_n_guesses: Optional[int]) -> List[List[Tuple[str, float]]]:
@@ -207,6 +209,9 @@ class Guesser(BaseGuesser):
         """ 
         DIMENSION = 768 ### TODO: double check embed length
         question_embeddings = torch.zeros((len(questions), DIMENSION))
+        for parameter in self.question_model.parameters():
+            parameter.requires_grad = False
+        self.question_model.eval()
         with torch.no_grad():
             for i, question in enumerate(questions):
                 question_embeddings[i] = self.question_model(self.tokenizer(question, return_tensors="pt", max_length=512, truncation=True, padding='max_length')["input_ids"].to(device)).pooler_output
@@ -370,6 +375,7 @@ class ReRanker(BaseReRanker):
 
     def get_best_document(self, question: str, ref_texts: List[str]) -> int:
         """Selects the best reference text from a list of reference text for each question."""
+        self.model.eval()
         with torch.no_grad():
             n_ref_texts = len(ref_texts)
             inputs_A = [question] * n_ref_texts
@@ -647,6 +653,7 @@ class AnswerExtractor:
         """Takes a (batch of) questions and reference texts and returns an answer text from the
         reference which is answer to the input question.
         """
+        self.model.eval()
         with torch.no_grad():
             model_inputs = self.tokenizer(
                 question, ref_text, return_tensors='pt', truncation=True, padding=True,
@@ -681,7 +688,7 @@ if __name__ == "__main__":
         guessdev = QantaDatabase(flags.dev_data)
 
         guesser = Guesser()
-        guesser.load(from_checkpoint=False)
+        guesser.load(True, 'models/guesser_question_encoder_9.pth.tar', 'models/guesser_context_encoder_9.pth.tar')
         guesser.finetune(guesstrain, limit=flags.limit)
         guesser.train(guesstrain)
         guesser.build_faiss_index()

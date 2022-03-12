@@ -5,6 +5,7 @@ import argparse
 from os import path
 
 from typing import Union, Dict
+from numpy import int0
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from base_models import BaseGuesser
@@ -103,6 +104,26 @@ class TfidfGuesser(BaseGuesser):
                 print("%i/%i for confusion matrix" % (data_index,
                                                       len(guesses)))
         return d
+
+    def compute_retrieval_accuracy(self, evaluation_data: QantaDatabase, num_guesses: int):
+        questions = [x.sentences[-1] for x in evaluation_data.guess_dev_questions]
+        answers = [x.page for x in evaluation_data.guess_dev_questions]
+
+        print(f'Eval on {len(questions)} question')
+
+        num_correct = 0
+        data_index = 0
+        raw_guesses = self.guess(questions, max_n_guesses=num_guesses)
+        for i, answer in enumerate(answers):
+            guesses = raw_guesses[i]
+            for guess in guesses:
+                if guess[0] == answer:
+                    num_correct += 1
+                    break
+            data_index += 1
+            if data_index % 100 == 0:
+                print(f'{data_index}/{len(raw_guesses)} for computing accuracy')
+        return num_correct / data_index
     
     def save(self, filepath):
         with open(filepath, 'wb') as f:
@@ -131,7 +152,7 @@ if __name__ == "__main__":
     parser.add_argument("--guessdev", default="data/qanta.dev.2018.json", type=str)
     parser.add_argument("--limit", default=-1, type=int)
     parser.add_argument("--model_path", default="models/tfidf_full.pickle", type=str)
-    parser.add_argument("--show_confusion_matrix", default=True, type=bool)
+    parser.add_argument("--show_confusion_matrix", default=False, type=bool)
 
     flags = parser.parse_args()
 
@@ -151,4 +172,5 @@ if __name__ == "__main__":
                 if ii != jj:
                     print("%i\t%s\t%s\t" % (confusion[ii][jj], ii, jj))
 
-    
+    for num_guesses in [1, 5, 10, 20]:
+        print(f'guesses: {num_guesses}, accuracy: {tfidf_guesser.compute_retrieval_accuracy(guessdev, num_guesses)}')

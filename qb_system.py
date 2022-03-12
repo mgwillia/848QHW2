@@ -17,7 +17,7 @@ class QuizBowlSystem:
         guesser = TfidfGuesser()
         guesser.load('models/tfidf_full.pickle')
         #guesser = Guesser()
-        #guesser.load()
+        #guesser.load(True, 'models/guesser_question_encoder_7.pth.tar', 'models/guesser_context_encoder_7.pth.tar')
         #guesser.train(QantaDatabase('data/qanta.train.2018.json'))
         #guesser.build_faiss_index()
 
@@ -27,8 +27,8 @@ class QuizBowlSystem:
         print('Loading the Reranker model...')
         first_sent_reranker = ReRanker()
         last_sent_reranker = ReRanker()
-        first_sent_path = 'models/reranker-first_sent-finetuned-full_2'
-        last_sent_path = 'models/reranker-last_sent-finetuned-full_2'
+        first_sent_path = 'models/reranker-first_sent-finetuned-full_1'
+        last_sent_path = 'models/reranker-last_sent-finetuned-full_1'
         identifier = 'amberoad/bert-multilingual-passage-reranking-msmarco'
         first_sent_reranker.load(identifier, first_sent_path)
         last_sent_reranker.load(identifier, last_sent_path)
